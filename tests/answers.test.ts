@@ -25,6 +25,13 @@ describe('checkAnswer', () => {
     expect(v('N2 + H2 <=> 2NH3', 'N2 + 3H2 <=> 2NH3')).toBe('wrong');
   });
 
+  it('accepts plain typing against LaTeX written with _ subscripts', () => {
+    expect(v('CxHy + O2 -> CO2 + H2O', '$C_xH_y + O_2 \\rightarrow CO_2 + H_2O$')).toBe('correct');
+    expect(v('C6H12O6', '$C_{6}H_{12}O_{6}$')).toBe('correct');
+    expect(v('SO4^2-', '$SO_4^{2-}$')).toBe('correct');
+    expect(v('x^2', '$x^{2}$')).toBe('correct');
+  });
+
   it('accepts unicode subscripts and arrows', () => {
     expect(v('H₂O', 'H2O')).toBe('correct');
     expect(v('CH4 + 2O2 → CO2 + 2H2O', 'CH4 + 2O2 -> CO2 + 2H2O')).toBe('correct');
