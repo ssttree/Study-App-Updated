@@ -27,6 +27,13 @@ works with no internet once it has been opened once.
   per day (20 by default) and when the study day rolls over (4am).
 - **Backup and restore** of everything as one file, with a reminder on the Today
   screen if you have not backed up for 7 days.
+- **Anki import** (Cards, Import from Anki): pick an `.apkg` file exported from
+  Anki and each Anki deck becomes a deck here, or joins one you already have.
+  Cards start fresh in FSRS. Anki maths `\(...\)` and `\[...\]` becomes `$...$`
+  and `$$...$$`, pictures come across, "and reversed" notes become both-ways
+  cards, "type in the answer" notes become typed cards, and each cloze becomes
+  its own card with the gap shown as **[...]**. Sound is left out for now.
+  Importing the same deck again skips cards already here.
 - **Offline**: the app saves its own files, so it opens on the bus with no signal.
   Your cards are stored in the browser (IndexedDB).
 
@@ -75,6 +82,9 @@ src/
     backup.ts        backup file export, checks and restore
     cards.ts         card helpers (tags, typing setting)
     answers.ts       checking typed answers and showing plain chemistry nicely
+    anki/            Anki .apkg import: read.ts opens the file (zip + SQLite),
+                     html.ts turns Anki HTML and templates into Markdown,
+                     convert.ts builds the cards, import.ts saves them
   screens/           one Svelte file per screen
   components/        pieces shared by screens
 tests/               automatic tests (Vitest)
@@ -82,4 +92,4 @@ server.js            tiny file server for Railway
 ```
 
 Later phases add their own records to `types.ts`, new stores in `db.ts` (by
-raising the database version), and their own screens. Phase 2 is Anki `.apkg` import.
+raising the database version), and their own screens.

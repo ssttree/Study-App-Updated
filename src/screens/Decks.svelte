@@ -48,9 +48,12 @@
       <div class="eyebrow">Cards</div>
       <h1>Decks</h1>
     </div>
-    {#if !creating}
-      <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
-    {/if}
+    <div class="actions">
+      <a class="btn" href={href('import')}>Import from Anki</a>
+      {#if !creating}
+        <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
+      {/if}
+    </div>
   </section>
 
   {#if creating}
@@ -99,6 +102,11 @@
   }
   .group {
     margin-bottom: 4px;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
   }
   .pad {
     padding: 24px;

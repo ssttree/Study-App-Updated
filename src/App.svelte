@@ -7,10 +7,11 @@
   import CardEditor from './screens/CardEditor.svelte';
   import Settings from './screens/Settings.svelte';
   import Later from './screens/Later.svelte';
+  import Import from './screens/Import.svelte';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
-    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard'] },
+    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['later:practice'] },
     { label: 'Planner', link: href('planner'), match: ['later:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
@@ -59,6 +60,8 @@
       <CardEditor cardId={route.id} />
     {:else if route.name === 'newCard'}
       <CardEditor deckId={route.deckId} />
+    {:else if route.name === 'import'}
+      <Import />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'later'}

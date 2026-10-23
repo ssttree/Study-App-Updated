@@ -9,6 +9,7 @@ export type Route =
   | { name: 'deck'; id: string }
   | { name: 'card'; id: string }
   | { name: 'newCard'; deckId: string }
+  | { name: 'import' }
   | { name: 'settings' }
   | { name: 'later'; feature: 'practice' | 'planner' | 'progress' }
   | { name: 'notFound' };
@@ -28,6 +29,8 @@ export function parseHash(hash: string): Route {
       return { name: 'review', filter: rest };
     case 'decks':
       return rest[0] ? { name: 'deck', id: rest[0] } : { name: 'decks' };
+    case 'import':
+      return { name: 'import' };
     case 'card':
       if (rest[0] === 'new') return { name: 'newCard', deckId: rest[1] ?? '' };
       return rest[0] ? { name: 'card', id: rest[0] } : { name: 'notFound' };
