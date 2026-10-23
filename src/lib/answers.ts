@@ -97,9 +97,27 @@ function compareItem(typed: string, expected: string): ItemVerdict {
   const tl = t.toLowerCase();
   const el = e.toLowerCase();
   if (tl === el) return isFormula(e) ? 'case' : 'correct';
-  // One slip in a longer word is "close", never in a formula where one letter changes the substance.
+  // A spelling slip is "close", never in a formula where one letter changes the substance.
   if (!/\d/.test(e) && !isFormula(e) && e.length >= 5 && editDistanceAtMostOne(tl, el)) return 'typo';
+  if (wordsNearlyMatch(typed, expected)) return 'typo';
   return 'wrong';
+}
+
+/**
+ * Word by word: each word of 4 or more letters may have one slip ("cabon
+ * dioxidie" for "carbon dioxide"). Short words and formulas must be exact.
+ */
+function wordsNearlyMatch(typed: string, expected: string): boolean {
+  const words = (s: string) => s.toLowerCase().replace(/[.,;:!?]/g, '').split(/\s+/).filter(Boolean);
+  const tw = words(typed);
+  const ew = words(expected);
+  if (ew.length < 2 || tw.length !== ew.length) return false;
+  return ew.every((e, i) => {
+    const t = tw[i];
+    if (t === e) return true;
+    if (e.length < 4 || /\d/.test(e) || isFormula(expected.split(/\s+/)[i] ?? e)) return false;
+    return editDistanceAtMostOne(t, e);
+  });
 }
 
 /** Splits "a, b and c" or lines or "a; b" into items. One item if there is no list. */

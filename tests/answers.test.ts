@@ -43,6 +43,18 @@ describe('checkAnswer', () => {
     expect(v('nacl', 'NaCl')).toBe('close');
   });
 
+  it('allows a slip in each word of a word equation', () => {
+    const key = 'acid + metal carbonate -> salt + water + carbon dioxide';
+    expect(checkAnswer('acid + metal carbonate → salt + water + cabon dioxidie', key)).toEqual({
+      verdict: 'close',
+      note: 'Close, check your spelling',
+    });
+    expect(v('acid + metal carbonate -> salt + water + carbon dioxide', key)).toBe('correct');
+    expect(v('acid + metal carbonate -> salt + water', key)).toBe('wrong');
+    expect(v('carbon monoxide', 'carbon dioxide')).toBe('wrong');
+    expect(v('cabon dioxidie', 'carbon dioxide')).toBe('close');
+  });
+
   it('allows one slip in a long word but not in a formula', () => {
     expect(checkAnswer('equilibrum', 'equilibrium').verdict).toBe('close');
     expect(v('CO3', 'CO2')).toBe('wrong');
