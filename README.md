@@ -14,7 +14,12 @@ works with no internet once it has been opened once.
   `$\ce{2H2 + O2 -> 2H2O}$`. Mistakes in the maths show up in red straight away.
 - **Basic and both-ways cards**, with an optional picture.
 - **Typing the answer**: each deck (or card) is set to Off, Always or Optional.
-  Optional gives you a switch on the review screen.
+  Optional gives you a switch on the review screen. Typed answers are checked
+  for you: lists count in any order ("calcium, barium" = "barium, calcium"),
+  chemistry can be typed plainly (`N2 + 3H2 <=> 2NH3`, shown as N₂ + 3H₂ ⇌ 2NH₃),
+  capitals only matter in formulas, and one slip in a long word counts as close.
+  A card can have an "answer to check" written plainly, with `|` between other
+  accepted answers.
 - **Review screen** scheduled by FSRS. Space shows the answer, 1 to 4 rates it
   (Again, Hard, Good, Easy), and each button shows when the card will come back.
 - **Study filters**: everything due, one subject, one deck or one topic.
@@ -68,7 +73,8 @@ src/
     queue.ts         which cards to review now, new card limit, study filters
     markdown.ts      card text to HTML, with Obsidian-style maths through KaTeX
     backup.ts        backup file export, checks and restore
-    cards.ts         card helpers (tags, typing setting, comparing typed answers)
+    cards.ts         card helpers (tags, typing setting)
+    answers.ts       checking typed answers and showing plain chemistry nicely
   screens/           one Svelte file per screen
   components/        pieces shared by screens
 tests/               automatic tests (Vitest)

@@ -51,6 +51,12 @@ export interface Card {
   /** Markdown with Obsidian-style $inline$ and $$display$$ maths. */
   front: string;
   back: string;
+  /**
+   * What a typed answer is checked against, written plainly
+   * (e.g. "barium, calcium" or "N2 + 3H2 <=> 2NH3"). Empty means use the
+   * first line of the back. "|" separates other accepted answers.
+   */
+  answer?: string;
   /** Optional picture shown on the front, stored as a data URL. */
   image?: string;
   /** Where the card came from, e.g. "manual" or "anki:Chem deck". */

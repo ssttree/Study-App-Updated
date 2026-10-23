@@ -32,14 +32,3 @@ export function blankCard(deckId: string, now = Date.now()): Card {
 export function effectiveTyping(card: Card, deck: Deck | undefined): TypingMode {
   return card.typing === 'deck' ? (deck?.typingDefault ?? 'off') : card.typing;
 }
-
-/** Loose comparison for typed answers: ignores case, spaces, punctuation and $ signs. */
-export function answersMatch(typed: string, expected: string): boolean {
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/\$+/g, '')
-      .replace(/[\s.,;:!?'"`*_()[\]{}]/g, '');
-  const a = norm(typed);
-  return a.length > 0 && a === norm(expected);
-}
