@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankCard, answersMatch, parseTags, effectiveTyping } from '../src/lib/cards';
+import { blankCard, parseTags, effectiveTyping } from '../src/lib/cards';
 import { formatInterval, makeScheduler, previewIntervals, rate } from '../src/lib/scheduler';
 import { buildQueue, pickNext, studyDayStart, summarise } from '../src/lib/queue';
 import { DEFAULT_SETTINGS, type Deck } from '../src/lib/types';
@@ -121,13 +121,6 @@ describe('queue', () => {
 describe('cards', () => {
   it('parses tags', () => {
     expect(parseTags('#exam, formula  #exam')).toEqual(['exam', 'formula']);
-  });
-
-  it('compares typed answers loosely', () => {
-    expect(answersMatch('  Le Chatelier ', 'le chatelier')).toBe(true);
-    expect(answersMatch('$\\cos x$', '\\cos x')).toBe(true);
-    expect(answersMatch('', '')).toBe(false);
-    expect(answersMatch('sin x', 'cos x')).toBe(false);
   });
 
   it('uses the deck typing setting unless the card overrides it', () => {

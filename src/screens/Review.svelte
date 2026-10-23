@@ -1,7 +1,8 @@
 <script lang="ts">
   import MathText from '../components/MathText.svelte';
   import { recordReview } from '../lib/db';
-  import { answersMatch, effectiveTyping } from '../lib/cards';
+  import { effectiveTyping } from '../lib/cards';
+  import { answerKey, checkAnswer, prettyChem } from '../lib/answers';
   import { filterFromParts } from '../lib/filters';
   import { loadCollection, plural, estimateMinutes } from '../lib/load';
   import { buildQueue, pickNext, summarise, LEARN_AHEAD_MS, type QueueItem } from '../lib/queue';
@@ -80,7 +81,10 @@
   const intervals = $derived(
     current && scheduler && settings ? previewIntervals(scheduler, stateFor(current.card, current.direction)) : null,
   );
-  const matched = $derived(revealed && typingActive && answersMatch(typed, answer));
+  const check = $derived(
+    revealed && typingActive && current ? checkAnswer(typed, answerKey(current.card, current.direction)) : null,
+  );
+  const verdictLabel = { correct: 'Right', close: 'Close', wrong: 'Not quite', empty: 'Nothing typed' } as const;
   const remaining = $derived(queue.length);
   const total = $derived(done + remaining);
 
@@ -214,15 +218,21 @@
               placeholder="Type your answer, then press Enter"
             />
           </label>
+          {#if typed.trim()}
+            <p class="shows-as muted">Shows as <span class="chem">{@html prettyChem(typed)}</span></p>
+          {/if}
+          <p class="type-tip muted">Lists can go in any order. Chemistry can be typed plainly: N2 + 3H2 &lt;=&gt; 2NH3</p>
         {/if}
 
         {#if revealed}
           <div class="divider"></div>
           {#if typingActive}
             <div class="compare">
-              <div class="yours" class:match={matched}>
-                <span class="eyebrow">{matched ? 'Your answer · matches' : 'Your answer'}</span>
-                {#if typed.trim()}<MathText text={typed} />{:else}<p class="muted">(nothing typed)</p>{/if}
+              <div class="yours {check?.verdict ?? ''}">
+                <span class="eyebrow">
+                  Your answer · {check ? verdictLabel[check.verdict] : ''}{check?.note ? ` · ${check.note}` : ''}
+                </span>
+                {#if typed.trim()}<p class="chem typed">{@html prettyChem(typed)}</p>{/if}
               </div>
             </div>
           {/if}
@@ -408,15 +418,39 @@
     border-radius: var(--radius);
     border: 1px dashed var(--line-strong);
   }
-  .compare .yours :global(.card-text) {
-    font-size: 18px;
-  }
-  .yours.match {
+  .yours.correct {
     border-style: solid;
     border-color: color-mix(in srgb, var(--good) 55%, transparent);
   }
-  .yours.match .eyebrow {
+  .yours.correct .eyebrow {
     color: var(--good);
+  }
+  .yours.close {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .yours.close .eyebrow {
+    color: var(--accent);
+  }
+  .yours.wrong .eyebrow {
+    color: var(--warn);
+  }
+  .typed {
+    margin: 0;
+    font-size: 20px;
+  }
+  .shows-as,
+  .type-tip {
+    margin: -16px 0 0;
+    font-size: 14px;
+  }
+  .type-tip {
+    font-size: 13px;
+    color: var(--dim);
+  }
+  .shows-as .chem {
+    color: var(--text);
+    font-size: 17px;
   }
   .controls {
     display: flex;

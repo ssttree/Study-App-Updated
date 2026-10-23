@@ -1,7 +1,8 @@
 <script lang="ts">
   import MathText from '../components/MathText.svelte';
   import { deleteCard, getCard, listCards, listDecks, saveCard } from '../lib/db';
-  import { blankCard, parseTags } from '../lib/cards';
+  import { blankCard, effectiveTyping, parseTags } from '../lib/cards';
+  import { prettyChem } from '../lib/answers';
   import { imageToDataUrl } from '../lib/images';
   import { renderMarkdown } from '../lib/markdown';
   import { go, href } from '../lib/router.svelte';
@@ -45,7 +46,12 @@
 
   async function save(addAnother: boolean) {
     if (!card || !canSave) return;
-    const toSave: Card = { ...$state.snapshot(card), tags: parseTags(tagText), topic: card.topic.trim() };
+    const toSave: Card = {
+      ...$state.snapshot(card),
+      tags: parseTags(tagText),
+      topic: card.topic.trim(),
+      answer: card.answer?.trim() || undefined,
+    };
     await saveCard(toSave);
     if (addAnother) {
       // Keep deck, topic, tags and settings for the next card, clear the text.
@@ -177,6 +183,23 @@
       </div>
     </section>
 
+    {#if effectiveTyping(card, deck) !== 'off'}
+      <section class="answer-field">
+        <label class="field">
+          Answer to check when typing (optional)
+          <input type="text" bind:value={card.answer} placeholder="e.g. barium, calcium   or   N2 + 3H2 <=> 2NH3" />
+        </label>
+        <p class="help muted">
+          Write it the way you would type it. Lists are marked right in any order, chemistry can be plain (N2, H2O,
+          &lt;=&gt;, -&gt;), capitals only matter in formulas. Put <code>|</code> between other answers you would
+          accept. Leave it empty to check against the first line of the back.
+        </p>
+        {#if card.answer?.trim()}
+          <p class="answer-preview">Shows as <span>{@html prettyChem(card.answer.split('|')[0])}</span></p>
+        {/if}
+      </section>
+    {/if}
+
     <p class="help muted">
       Write maths like Obsidian: <code>$x^2$</code> inside a sentence, <code>$$\int_0^1 x\,dx$$</code> on its own
       line. Chemistry works with <code>$\ce{'{'}2H2 + O2 -> 2H2O{'}'}$</code>. Use <code>\$</code> for a dollar
@@ -271,6 +294,20 @@
     padding: 1px 5px;
     border-radius: 4px;
     color: var(--text);
+  }
+  .answer-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .answer-preview {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .answer-preview span {
+    color: var(--answer);
+    font-size: 17px;
   }
   .buttons {
     display: flex;
