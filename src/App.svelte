@@ -7,11 +7,12 @@
   import CardEditor from './screens/CardEditor.svelte';
   import Settings from './screens/Settings.svelte';
   import Later from './screens/Later.svelte';
+  import CustomStudy from './screens/CustomStudy.svelte';
   import Import from './screens/Import.svelte';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
-    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'import'] },
+    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['later:practice'] },
     { label: 'Planner', link: href('planner'), match: ['later:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
@@ -35,6 +36,8 @@
 {#if route.name === 'review'}
   <!-- Review is a focus screen with no main menu. -->
   <Review filterParts={route.filter} />
+{:else if route.name === 'customRun'}
+  <Review customParts={route.parts} />
 {:else}
   <header class="top">
     <a class="brand" href={href('today')} aria-label="Study App, today"><span aria-hidden="true">●</span></a>
@@ -60,6 +63,8 @@
       <CardEditor cardId={route.id} />
     {:else if route.name === 'newCard'}
       <CardEditor deckId={route.deckId} />
+    {:else if route.name === 'custom'}
+      <CustomStudy filterParts={route.filter} />
     {:else if route.name === 'import'}
       <Import />
     {:else if route.name === 'settings'}

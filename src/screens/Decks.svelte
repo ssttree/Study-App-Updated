@@ -48,7 +48,8 @@
       <div class="eyebrow">Cards</div>
       <h1>Decks</h1>
     </div>
-    <div class="actions">
+    <div class="head-actions">
+      {#if data && data.cards.length > 0}<a class="btn" href={href('custom')}>Custom study</a>{/if}
       <a class="btn" href={href('import')}>Import from Anki</a>
       {#if !creating}
         <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
@@ -91,6 +92,11 @@
     gap: 16px;
     flex-wrap: wrap;
   }
+  .head-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
   h1 {
     font-size: 40px;
     margin-top: 8px;
@@ -102,11 +108,6 @@
   }
   .group {
     margin-bottom: 4px;
-  }
-  .actions {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
   }
   .pad {
     padding: 24px;

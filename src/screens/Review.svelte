@@ -3,15 +3,20 @@
   import { recordReview } from '../lib/db';
   import { effectiveTyping } from '../lib/cards';
   import { answerKey, checkAnswer, prettyChem } from '../lib/answers';
-  import { filterFromParts } from '../lib/filters';
+  import { filterFromParts, filterLabel as labelFor } from '../lib/filters';
   import { loadCollection, plural, estimateMinutes } from '../lib/load';
+  import { customFromParts, logsNeededSince, selectCustom } from '../lib/custom';
+  import { logsSince } from '../lib/db';
   import { buildQueue, pickNext, summarise, LEARN_AHEAD_MS, type QueueItem } from '../lib/queue';
   import { formatInterval, makeScheduler, previewIntervals, rate, RATINGS, stateFor, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
   import type { Deck, Settings } from '../lib/types';
   import type { FSRS } from 'ts-fsrs';
 
-  let { filterParts }: { filterParts: string[] } = $props();
+  // With customParts this is a custom study session: practice only, the schedule is left alone.
+  let { filterParts = [], customParts }: { filterParts?: string[]; customParts?: string[] } = $props();
+  const practice = $derived(customParts !== undefined);
+  let missed = $state(0);
 
   const TYPING_PREF_KEY = 'study-app:typing-optional-on';
 
@@ -41,15 +46,20 @@
 
   async function start() {
     const data = await loadCollection();
-    const filter = filterFromParts(filterParts);
     decks = data.decks;
     settings = data.settings;
     scheduler = makeScheduler(data.settings);
-    const summary = summarise(data.cards, data.decks, data.logsToday, data.settings, filter);
-    queue = buildQueue(summary);
-    if (filter.kind === 'subject') filterLabel = filter.subject;
-    else if (filter.kind === 'deck') filterLabel = data.decks.find((d) => d.id === filter.deckId)?.name ?? 'Deck';
-    else if (filter.kind === 'topic') filterLabel = filter.topic;
+    if (customParts) {
+      const options = customFromParts(customParts);
+      const now = Date.now();
+      const logs = await logsSince(logsNeededSince(options, now, data.settings.dayStartHour));
+      queue = selectCustom(data.cards, data.decks, logs, options, now, data.settings.dayStartHour);
+      filterLabel = labelFor(options.filter, data.decks);
+    } else {
+      const filter = filterFromParts(filterParts);
+      queue = buildQueue(summarise(data.cards, data.decks, data.logsToday, data.settings, filter));
+      filterLabel = labelFor(filter, data.decks);
+    }
     loading = false;
     advance();
   }
@@ -79,7 +89,7 @@
   const question = $derived(current ? (current.direction === 'forward' ? current.card.front : current.card.back) : '');
   const answer = $derived(current ? (current.direction === 'forward' ? current.card.back : current.card.front) : '');
   const intervals = $derived(
-    current && scheduler && settings ? previewIntervals(scheduler, stateFor(current.card, current.direction)) : null,
+    current && scheduler && settings && !practice ? previewIntervals(scheduler, stateFor(current.card, current.direction)) : null,
   );
   const check = $derived(
     revealed && typingActive && current ? checkAnswer(typed, answerKey(current.card, current.direction)) : null,
@@ -93,7 +103,24 @@
     revealed = true;
   }
 
+  /** Custom study: Again puts the card back a few cards later, Got it moves on. Nothing is saved. */
+  function practiceAnswer(gotIt: boolean) {
+    if (!current || !revealed) return;
+    const item = current;
+    const rest = queue.filter((q) => q !== item);
+    if (gotIt) {
+      queue = rest;
+    } else {
+      missed += 1;
+      const at = Math.min(3, rest.length);
+      queue = [...rest.slice(0, at), item, ...rest.slice(at)];
+    }
+    done += 1;
+    advance();
+  }
+
   async function choose(rating: RatingValue) {
+    if (practice) return practiceAnswer(rating !== 1);
     if (!current || !revealed || !scheduler || saving) return;
     saving = true;
     const item = current;
@@ -176,6 +203,7 @@
 <div class="review">
   <header>
     <a class="leave" href={href('today')}>← Done for now</a>
+    {#if practice}<span class="badge mode">Custom study</span>{/if}
     <div class="bar" role="progressbar" aria-label="Cards reviewed" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
       <div class="fill" style:flex={done}></div>
       <div class="rest" style:flex={Math.max(remaining, total === 0 ? 1 : 0)}></div>
@@ -254,6 +282,13 @@
             {/if}
           </div>
         {:else}
+          {#if practice}
+            <div class="ratings">
+              <button class="rate" onclick={() => practiceAnswer(false)}>Again <span>see it again soon · 1</span></button>
+              <button class="rate good" onclick={() => practiceAnswer(true)}>Got it <span>space</span></button>
+            </div>
+            <p class="hint muted">Custom study is extra practice. It does not change when cards are next due.</p>
+          {:else}
           <div class="ratings">
             {#each RATINGS as r (r.value)}
               <button class="rate" class:good={r.value === 3} onclick={() => choose(r.value)} disabled={saving}>
@@ -263,6 +298,7 @@
             {/each}
           </div>
           <p class="hint muted">How well did you remember? Again if you got it wrong, Hard if it was a struggle, Good if you got it, Easy if it was instant.</p>
+          {/if}
         {/if}
       </div>
     {:else}
@@ -274,6 +310,18 @@
             They come back in about {formatInterval(waitUntil - tick)}. Stay here and they will appear, or leave and
             catch them next time.
           </p>
+        {:else if practice && done > 0}
+          <div class="eyebrow accent">Custom study done</div>
+          <h1>{plural(done - missed, 'card')} gone over</h1>
+          <p class="muted">
+            {#if missed > 0}You needed {plural(missed, 'extra go', 'extra goes')} along the way.{/if}
+            Your schedule is unchanged, so
+            these cards still come back when FSRS planned.
+          </p>
+        {:else if practice}
+          <div class="eyebrow accent">Custom study</div>
+          <h1>No cards match</h1>
+          <p class="muted">Try a different choice, like all cards in {filterLabel}.</p>
         {:else if done > 0}
           <div class="eyebrow accent">Done for now</div>
           <h1>{plural(done, 'card')} reviewed</h1>
@@ -285,6 +333,7 @@
         {/if}
         <div class="actions">
           <a class="btn primary" href={href('today')}>Back to today</a>
+          <a class="btn" href={href('custom')}>Custom study</a>
           <a class="btn" href={href('decks')}>Decks</a>
         </div>
       </section>
@@ -379,6 +428,12 @@
     border-radius: 10px;
     border: 1px solid var(--line-strong);
     color: var(--muted);
+  }
+  .badge.mode {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--info);
+    border-color: color-mix(in srgb, var(--info) 50%, transparent);
   }
   .badge.new {
     color: var(--info);

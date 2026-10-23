@@ -5,6 +5,8 @@
 export type Route =
   | { name: 'today' }
   | { name: 'review'; filter: string[] }
+  | { name: 'custom'; filter: string[] }
+  | { name: 'customRun'; parts: string[] }
   | { name: 'decks' }
   | { name: 'deck'; id: string }
   | { name: 'card'; id: string }
@@ -27,6 +29,8 @@ export function parseHash(hash: string): Route {
       return { name: 'today' };
     case 'review':
       return { name: 'review', filter: rest };
+    case 'custom':
+      return rest[0] === 'run' ? { name: 'customRun', parts: rest.slice(1) } : { name: 'custom', filter: rest };
     case 'decks':
       return rest[0] ? { name: 'deck', id: rest[0] } : { name: 'decks' };
     case 'import':
@@ -54,9 +58,11 @@ export function go(...parts: string[]): void {
 }
 
 class Router {
-  route = $state<Route>(parseHash(location.hash));
+  route = $state<Route>(parseHash(typeof location === 'undefined' ? '' : location.hash));
 
   constructor() {
+    // Tests run without a browser, where there is no address to follow.
+    if (typeof window === 'undefined') return;
     window.addEventListener('hashchange', () => {
       this.route = parseHash(location.hash);
       window.scrollTo(0, 0);
