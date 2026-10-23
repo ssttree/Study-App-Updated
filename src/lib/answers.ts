@@ -28,11 +28,15 @@ export function toPlain(text: string): string {
   for (let i = 0; i < 5; i++) s = s.replace(/\\(?:ce|text|mathrm|textrm|mathbf)\s*\{([^{}]*)\}/g, '$1');
   s = s
     .replace(/\$+/g, '')
-    .replace(/\\left|\\right|\\[,;:!]|\\quad/g, ' ')
+    .replace(/\\(?:left|right)(?![a-z])|\\[,;:!]|\\quad/g, ' ')
     .replace(/\*\*|__|`/g, '')
+    // LaTeX subscripts and braces: O_2 and O_{2} are typed as O2, x^{2} as x^2.
+    .replace(/_\{([^{}]*)\}/g, '$1')
+    .replace(/_([A-Za-z0-9+-])/g, '$1')
+    .replace(/\^\{([^{}]*)\}/g, '^$1')
     .replace(/[₀-₉⁰-⁹¹²³⁺⁻]/g, (c) => SUBSCRIPTS[c] ?? c)
     .replace(/\\rightleftharpoons|\\leftrightharpoons|⇌|⇋|⇄|<-+>|<=+>/g, ' \u0001 ')
-    .replace(/\\rightarrow|\\to\b|→|-+>|=+>/g, ' \u0002 ')
+    .replace(/\\longrightarrow|\\rightarrow|\\to\b|→|-+>|=+>/g, ' \u0002 ')
     .replace(/\u0001/g, '<=>')
     .replace(/\u0002/g, '->')
     .replace(/\s+/g, ' ')
