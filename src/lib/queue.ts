@@ -12,7 +12,8 @@ export type StudyFilter =
   | { kind: 'all' }
   | { kind: 'subject'; subject: string }
   | { kind: 'deck'; deckId: string }
-  | { kind: 'topic'; deckId: string; topic: string };
+  | { kind: 'topic'; deckId: string; topic: string }
+  | { kind: 'tag'; tag: string };
 
 export interface QueueItem {
   card: Card;
@@ -47,6 +48,8 @@ export function matchesFilter(card: Card, decks: Map<string, Deck>, filter: Stud
       return card.deckId === filter.deckId;
     case 'topic':
       return card.deckId === filter.deckId && card.topic === filter.topic;
+    case 'tag':
+      return card.tags.includes(filter.tag);
   }
 }
 

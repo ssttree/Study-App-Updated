@@ -79,6 +79,7 @@
         <div class="actions">
           <a class="btn primary" href={reviewHref({ kind: 'all' })}>Start review</a>
           <a class="btn" href={href('decks')}>Add cards</a>
+          <a class="btn" href={href('custom')}>Custom study</a>
         </div>
       </section>
     {:else}
@@ -90,7 +91,8 @@
           {#if view.all.newLeftToday === 0}You have used today's {data.settings.newPerDay} new cards.{:else}Add new cards to keep learning.{/if}
         </p>
         <div class="actions">
-          <a class="btn primary" href={href('decks')}>Add cards</a>
+          <a class="btn primary" href={href('custom')}>Custom study</a>
+          <a class="btn" href={href('decks')}>Add cards</a>
         </div>
       </section>
     {/if}

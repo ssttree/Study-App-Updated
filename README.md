@@ -23,6 +23,9 @@ works with no internet once it has been opened once.
 - **Review screen** scheduled by FSRS. Space shows the answer, 1 to 4 rates it
   (Again, Hard, Good, Easy), and each button shows when the card will come back.
 - **Study filters**: everything due, one subject, one deck or one topic.
+- **Custom study**: go over cards again whenever you like: the cards you studied
+  today, ones you forgot recently, or every card in a subject, deck, topic or tag.
+  It is extra practice only, so it never changes when cards are next due.
 - **Settings**: target retention (90% normally, 95% for exam weeks), new cards
   per day (20 by default) and when the study day rolls over (4am).
 - **Backup and restore** of everything as one file, with a reminder on the Today
@@ -71,6 +74,7 @@ src/
     db.ts            saving and loading from IndexedDB
     scheduler.ts     FSRS (via ts-fsrs): rating a card and working out intervals
     queue.ts         which cards to review now, new card limit, study filters
+    custom.ts        picking cards for custom study
     markdown.ts      card text to HTML, with Obsidian-style maths through KaTeX
     backup.ts        backup file export, checks and restore
     cards.ts         card helpers (tags, typing setting)

@@ -98,6 +98,9 @@
           <a class="btn primary" href={reviewHref({ kind: 'deck', deckId: id })}>Study {deckReady}</a>
         {/if}
         <a class="btn" class:primary={deckReady === 0} href={href('card', 'new', id)}>Add card</a>
+        {#if cards.length > 0}
+          <a class="btn" href={href('custom', 'deck', id)}>Custom study</a>
+        {/if}
         <button class="btn" onclick={() => (editing = !editing)}>Deck settings</button>
       </div>
     </section>

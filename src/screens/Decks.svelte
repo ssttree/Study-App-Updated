@@ -49,7 +49,10 @@
       <h1>Decks</h1>
     </div>
     {#if !creating}
-      <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
+      <div class="head-actions">
+        {#if data && data.cards.length > 0}<a class="btn" href={href('custom')}>Custom study</a>{/if}
+        <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
+      </div>
     {/if}
   </section>
 
@@ -86,6 +89,11 @@
     justify-content: space-between;
     align-items: flex-end;
     gap: 16px;
+    flex-wrap: wrap;
+  }
+  .head-actions {
+    display: flex;
+    gap: 12px;
     flex-wrap: wrap;
   }
   h1 {
