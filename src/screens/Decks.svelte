@@ -48,12 +48,13 @@
       <div class="eyebrow">Cards</div>
       <h1>Decks</h1>
     </div>
-    {#if !creating}
-      <div class="head-actions">
-        {#if data && data.cards.length > 0}<a class="btn" href={href('custom')}>Custom study</a>{/if}
+    <div class="head-actions">
+      {#if data && data.cards.length > 0}<a class="btn" href={href('custom')}>Custom study</a>{/if}
+      <a class="btn" href={href('import')}>Import from Anki</a>
+      {#if !creating}
         <button class="btn primary" onclick={() => (creating = true)}>New deck</button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </section>
 
   {#if creating}

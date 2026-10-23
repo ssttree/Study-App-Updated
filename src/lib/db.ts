@@ -114,6 +114,15 @@ async function deleteCardInTx(cards: CardStore, logs: LogStore, id: string): Pro
   await cards.delete(id);
 }
 
+/** Adds new decks and cards in one go, so an import either all lands or none of it does. */
+export async function addDecksAndCards(decks: Deck[], cards: Card[]): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['decks', 'cards'], 'readwrite');
+  for (const deck of decks) await tx.objectStore('decks').put(deck);
+  for (const card of cards) await tx.objectStore('cards').put(card);
+  await tx.done;
+}
+
 // Review logs
 
 /** Saves the updated card and its review log together, so neither is lost alone. */

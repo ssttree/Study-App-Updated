@@ -8,10 +8,11 @@
   import Settings from './screens/Settings.svelte';
   import Later from './screens/Later.svelte';
   import CustomStudy from './screens/CustomStudy.svelte';
+  import Import from './screens/Import.svelte';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
-    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom'] },
+    { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['later:practice'] },
     { label: 'Planner', link: href('planner'), match: ['later:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
@@ -64,6 +65,8 @@
       <CardEditor deckId={route.deckId} />
     {:else if route.name === 'custom'}
       <CustomStudy filterParts={route.filter} />
+    {:else if route.name === 'import'}
+      <Import />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'later'}
