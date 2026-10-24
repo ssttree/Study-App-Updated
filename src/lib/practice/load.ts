@@ -21,10 +21,8 @@ export async function loadPractice(now = Date.now()): Promise<PracticeCollection
   return { settings, skills, problems, attempts, plans, dayEnd: studyDayEnd(now, settings.dayStartHour) };
 }
 
-/** "Maths Extension 1" -> "Ext 1", for tight spaces. */
-export function shortSubject(subject: string): string {
-  return subject.replace(/^Maths Extension /, 'Ext ').replace(/^Maths Advanced$/, 'Maths Adv');
-}
+// Lives with quick add so the phone page can use it without the database.
+export { shortSubject } from '../planner/quickadd';
 
 const DAY = 86_400_000;
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import QuickAdd from '../components/QuickAdd.svelte';
+  import { sync } from '../lib/sync';
   import { loadPlanner, type PlannerData } from '../lib/planner/load';
   import {
     addItem,
@@ -15,7 +16,8 @@
     togglePin,
   } from '../lib/planner/actions';
   import { ASK_AFTER_CARRIES, EXTRA_WINDOW, extraItem, type BuiltDay } from '../lib/planner/build';
-  import { addDays, clockMinutes, dayLabel, dueLabel, minutesText } from '../lib/planner/dates';
+  import { addDays, clockMinutes, clockText, dayLabel, dueLabel, minutesText } from '../lib/planner/dates';
+  import { SHIFT_BUFFER } from '../lib/planner/calendar';
   import { itemColour, itemLink, itemText, KIND_TEXT, windowTime } from '../lib/planner/labels';
   import { stageOf, STAGE_LABEL } from '../lib/planner/assessments';
   import { shortSubject } from '../lib/practice/load';
@@ -31,7 +33,11 @@
   async function reload() {
     data = await loadPlanner();
   }
-  reload();
+  // Show what's here straight away, then again if the server brought homework or calendar changes.
+  reload().then(async () => {
+    const r = await sync();
+    if (r.collected || r.calendarsRead) await reload();
+  });
 
   /** Runs a change, then rebuilds the plan around it. */
   async function act(fn: () => Promise<unknown>) {
@@ -152,6 +158,14 @@
   function newDate(task: Task, e: Event) {
     const value = (e.currentTarget as HTMLInputElement).value;
     if (value) act(() => rescheduleTask(task, value));
+  }
+
+  /** Work shifts from Google, shown so you can see why a window vanished. */
+  function shifts(date: string): string[] {
+    const ctx = data?.input.context?.(date);
+    const out = (ctx?.busy ?? []).map((b) => `Work ${clockText(b.start + SHIFT_BUFFER)} to ${clockText(b.end - SHIFT_BUFFER)}`);
+    if (ctx?.schoolDay === false) out.push('No school');
+    return out;
   }
 
   const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
@@ -318,6 +332,7 @@
               <span class="mono dim small">{minutesText(planned(day))}</span>
             </div>
             {#each day.warnings as w (w)}<div class="mini-warn small" title={w}>Homework won't fit</div>{/each}
+            {#each shifts(day.date) as s (s)}<div class="shift mono">{s}</div>{/each}
             {#each groups(day) as g (g.id)}
               <div
                 class="slot"
@@ -368,6 +383,11 @@
         <span class="mono muted small">
           {#if soon.length}{soon.map((a) => `${a.name} (${STAGE_LABEL[stageOf(a, data!.today)]})`).join(', ')}{:else}none in prep{/if}
         </span>
+      </a>
+      <a class="row link" href={href('planner', 'connect')}>
+        <span class="dot" style:background="var(--info)"></span>
+        <span class="name">Phone and Google Calendar</span>
+        <span class="mono muted small">quick add on your phone, due dates and study blocks in Google</span>
       </a>
       <a class="row link" href={href('planner', 'windows')}>
         <span class="dot"></span>
@@ -617,6 +637,10 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .shift {
+    font-size: 11px;
+    color: var(--info);
   }
   .mini-warn {
     color: var(--warn);

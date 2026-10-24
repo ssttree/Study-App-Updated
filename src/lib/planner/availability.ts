@@ -49,10 +49,32 @@ export function templateWindows(key: string, a: Availability): StudyWindow[] {
     .sort((x, y) => clockMinutes(x.start) - clockMinutes(y.start));
 }
 
-/** The study windows for one day: a one-off change if there is one, else the template. */
-export function windowsFor(key: string, a: Availability): StudyWindow[] {
+/** What your calendars say about one day (see calendar.ts). */
+export interface DayContext {
+  /** Work shifts, as minutes after midnight, already padded for travel. */
+  busy: { start: number; end: number }[];
+  /** False on a weekday with no lessons (a holiday); undefined when we can't tell. */
+  schoolDay?: boolean;
+}
+
+/** Takes out windows that clash with a work shift, and bus windows on school holidays. */
+export function applyContext(windows: StudyWindow[], ctx: DayContext | undefined): StudyWindow[] {
+  if (!ctx) return windows;
+  return windows.filter((w) => {
+    if (ctx.schoolDay === false && w.kind === 'bus') return false;
+    const start = clockMinutes(w.start);
+    const end = start + w.minutes;
+    return !ctx.busy.some((b) => b.start < end && b.end > start);
+  });
+}
+
+/**
+ * The study windows for one day: a one-off change if you made one (used as
+ * is), else the template with your calendars applied.
+ */
+export function windowsFor(key: string, a: Availability, ctx?: DayContext): StudyWindow[] {
   const override = a.overrides[key];
-  const list = override ?? templateWindows(key, a);
+  const list = override ?? applyContext(templateWindows(key, a), ctx);
   return [...list].sort((x, y) => clockMinutes(x.start) - clockMinutes(y.start));
 }
 

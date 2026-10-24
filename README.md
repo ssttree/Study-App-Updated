@@ -93,6 +93,17 @@ works with no internet once it has been opened once.
   weighting. Assignments get milestones (each one a homework task) and warn when one slips. Afterwards, enter
   your mark and tick skills that went badly; they come straight back.
 
+- **Phone quick add** (Planner, Phone and Google): a tiny page for your phone that only adds homework.
+  It sends each task to the Railway server, and the laptop collects it next time it's online. With no
+  signal, tasks wait on the phone and send themselves later. With your timetable connected, the lesson on
+  now is the subject unless you type one.
+- **Google Calendar**: due dates go into a calendar the app makes called *Study App: Due dates*, and the
+  week's plan goes into *Study App: Study blocks* (untick it in Google to hide it). The app also reads your
+  work calendar (a shift takes out any study window it touches, with 30 minutes to get there and back) and
+  your school timetable (bus windows drop out on weekdays with no lessons). It can't change any other
+  calendar. The laptop syncs every 10 minutes while it's open and online, and keeps the last copy of your
+  calendars so the plan still works offline.
+
 Progress is in the menu already and says what is coming.
 
 ## Running it on your laptop
@@ -122,6 +133,28 @@ npm start        # serves the finished app (this is what Railway runs)
 Open that address once on your laptop while online. After that it works offline.
 Cards stay in that browser on that laptop, so keep backups (Settings > Download backup).
 
+### Phone quick add and Google Calendar
+
+These need the server to keep a little data (the homework inbox and your Google sign-in), so:
+
+1. In the Railway service, right click the canvas (or press Ctrl K) and add a **Volume**, mounted at `/data`.
+2. Under **Variables**, add:
+   - `APP_KEY`: a long random password you make up. The app and phone page send it with every request.
+   - `DATA_DIR`: `/data`
+   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: from Google Cloud (below).
+   - `TIME_ZONE` (optional): defaults to `Australia/Sydney`.
+3. In [Google Cloud Console](https://console.cloud.google.com):
+   1. Make a new project, then go to **APIs and services > Library** and enable the **Google Calendar API**.
+   2. **OAuth consent screen**: choose External, fill in the app name and your email, add the scopes
+      `calendar.app.created`, `calendar.calendarlist.readonly` and `calendar.events.readonly`, and add your
+      Google account as a test user. Then press **Publish app** so the sign-in doesn't run out after 7 days.
+      Google will say the app isn't verified when you sign in; that's fine for your own app (Advanced, Go to).
+   3. **Credentials > Create credentials > OAuth client ID**, type Web application. Under Authorised
+      redirect URIs add `https://YOUR-RAILWAY-DOMAIN/auth/google/callback`. Copy the client ID and secret
+      into Railway.
+4. In the app: Planner, Phone and Google. Paste the app key, open the phone link on your phone and add it
+   to the home screen, then press Connect Google Calendar and pick your work and timetable calendars.
+
 ## How the code is laid out
 
 ```
@@ -141,14 +174,19 @@ src/
     answers.ts       checking typed answers and showing plain chemistry nicely
     planner/         homework and the daily plan: quickadd.ts reads a quick add line,
                      availability.ts the study windows and seasons, build.ts makes
-                     the plan, assessments.ts the exam ramps, load.ts loads it all
+                     the plan, assessments.ts the exam ramps, load.ts loads it all,
+                     calendar.ts reads and writes Google Calendar events
+    sync.ts          talks to the server: phone inbox and Google Calendar
+  add/               the phone quick add page (add.html), plain TypeScript
     anki/            Anki .apkg import: read.ts opens the file (zip + SQLite),
                      html.ts turns Anki HTML and templates into Markdown,
                      convert.ts builds the cards, import.ts saves them
   screens/           one Svelte file per screen
   components/        pieces shared by screens
 tests/               automatic tests (Vitest)
-server.js            tiny file server for Railway
+server.js            file server for Railway, plus the API below
+server/              api.js (inbox, Google routes), google.js (sign-in and calendar
+                     calls), store.js (one JSON file in DATA_DIR)
 ```
 
 Later phases add their own records to `types.ts`, new stores in `db.ts` (by

@@ -10,7 +10,7 @@
 
 import type { Availability, DayPlan, PlanItem, StudyWindow, Task, TestPlan } from '../types';
 import { addDays, daysBetween } from './dates';
-import { windowsFor } from './availability';
+import { windowsFor, type DayContext } from './availability';
 import { prepPull, stageOf } from './assessments';
 
 export const MIN_FLASHCARDS = 10;
@@ -32,6 +32,8 @@ export interface PlannerInput {
   saved: Map<string, DayPlan>;
   /** Flashcard minutes for a day (0 when there are no cards). */
   flashMinutes: (date: string) => number;
+  /** What your Google calendars say about a day (work shifts, holidays), if connected. */
+  context?: (date: string) => DayContext | undefined;
   /** Subjects ranked by how much they need problems today (empty with no skills). */
   problemSubjects: string[];
   newId?: () => string;
@@ -91,7 +93,7 @@ function buildDay(
   lastSubject: string,
 ): BuiltDay {
   const makeId = input.newId ?? (() => crypto.randomUUID());
-  const windows = windowsFor(date, input.availability);
+  const windows = windowsFor(date, input.availability, input.context?.(date));
   const ids = new Set(windows.map((w) => w.id));
   const taskById = new Map(input.tasks.map((t) => [t.id, t]));
   const saved = input.saved.get(date);

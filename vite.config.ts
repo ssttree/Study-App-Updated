@@ -24,10 +24,18 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,woff2,wasm}'],
         navigateFallback: 'index.html',
+        // These go to the server: the Google sign-in, the API and the phone page.
+        navigateFallbackDenylist: [/^\/auth\//, /^\/api\//, /^\/add/],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
   ],
+  // Two pages: the app, and the phone's quick add page.
+  build: {
+    rollupOptions: {
+      input: { main: 'index.html', add: 'add.html' },
+    },
+  },
   // The PDF.js worker is an ES module.
   worker: { format: 'es' },
   test: {

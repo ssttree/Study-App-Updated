@@ -4,11 +4,14 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { defaultAvailability } from './planner/availability';
+import type { CalendarCache } from './planner/calendar';
 import {
   DEFAULT_SETTINGS,
   type Attempt,
   type Availability,
   type DayPlan,
+  DEFAULT_SYNC,
+  type SyncConfig,
   type Task,
   type Card,
   type Deck,
@@ -452,4 +455,26 @@ export async function hasAvailability(): Promise<boolean> {
 
 export async function saveAvailability(availability: Availability): Promise<void> {
   await (await db()).put('meta', availability, 'availability');
+}
+
+// Phone and Google Calendar (this laptop only)
+
+export async function getSyncConfig(): Promise<SyncConfig> {
+  const stored = (await (await db()).get('meta', 'sync')) as Partial<SyncConfig> | undefined;
+  return { ...DEFAULT_SYNC, ...stored };
+}
+
+export async function saveSyncConfig(config: SyncConfig): Promise<void> {
+  await (await db()).put('meta', config, 'sync');
+}
+
+/** The last copy of your work and timetable calendars, so planning works offline. */
+export async function getCalendarCache(): Promise<CalendarCache | null> {
+  return ((await (await db()).get('meta', 'calendarCache')) as CalendarCache | undefined) ?? null;
+}
+
+export async function saveCalendarCache(cache: CalendarCache | null): Promise<void> {
+  const database = await db();
+  if (cache) await database.put('meta', cache, 'calendarCache');
+  else await database.delete('meta', 'calendarCache');
 }

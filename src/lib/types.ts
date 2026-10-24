@@ -321,3 +321,26 @@ export interface StoredImage {
   width: number;
   height: number;
 }
+
+/** Phone inbox and Google Calendar settings. Kept on this laptop only, never in backups. */
+export interface SyncConfig {
+  /** The APP_KEY set on the Railway server. */
+  key: string;
+  /** Google calendars the app reads (never changes). Empty means none. */
+  workCalendarId: string;
+  timetableCalendarId: string;
+  /** Write due dates and study blocks to the app's own two calendars. */
+  pushDue: boolean;
+  pushBlocks: boolean;
+  connected?: boolean;
+  lastSync?: number;
+  lastError?: string;
+}
+
+export const DEFAULT_SYNC: SyncConfig = {
+  key: '',
+  workCalendarId: '',
+  timetableCalendarId: '',
+  pushDue: true,
+  pushBlocks: true,
+};
