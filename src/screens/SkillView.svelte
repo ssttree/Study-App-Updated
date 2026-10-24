@@ -14,6 +14,7 @@
   let dotPoint = $state('');
   let selected = $state<string[]>([]);
   let subName = $state('');
+  let moveTo = $state('');
   let open = $state<string | null>(null);
   let saved = $state(false);
 
@@ -29,6 +30,15 @@
   const parent = $derived(skill?.parentId ? data?.skills.find((s) => s.id === skill.parentId) : undefined);
   const children = $derived(data?.skills.filter((s) => s.parentId === id) ?? []);
   const problems = $derived(data?.problems.filter((p) => p.skillId === id) ?? []);
+  // Same subject first, so the skill you want is near the top of the list.
+  const targets = $derived(
+    (data?.skills.filter((s) => s.id !== id) ?? []).sort(
+      (a, b) =>
+        Number(b.subject === skill?.subject) - Number(a.subject === skill?.subject) ||
+        a.subject.localeCompare(b.subject) ||
+        a.name.localeCompare(b.name),
+    ),
+  );
   const attempts = $derived(data?.attempts.filter((a) => a.skillId === id) ?? []);
   // Some questions easy and some forgotten suggests the worksheet covers more than one method.
   const mixedResults = $derived.by(() => {
@@ -67,6 +77,20 @@
     selected = [];
     subName = '';
     await load();
+  }
+
+  async function moveSelected() {
+    const target = data?.skills.find((s) => s.id === moveTo);
+    if (!target || !selected.length) return;
+    await moveProblems(selected, target.id);
+    selected = [];
+    moveTo = '';
+    await load();
+  }
+
+  function targetName(s: Skill): string {
+    const parentSkill = s.parentId ? data?.skills.find((x) => x.id === s.parentId) : undefined;
+    return parentSkill ? `${parentSkill.name} / ${s.name}` : s.name;
   }
 
   async function mergeBack() {
@@ -152,26 +176,40 @@
     <section>
       <div class="section-head">
         <h2>Questions</h2>
-        {#if !skill.parentId}<span class="muted small">Tick questions to split them into a sub-skill.</span>{/if}
+        <span class="muted small">
+          Tick questions to move them to another skill{skill.parentId ? '' : ' or split them into a sub-skill'}.
+        </span>
       </div>
       {#if selected.length}
         <div class="split panel">
           <span>{plural(selected.length, 'question')} ticked.</span>
-          <input type="text" bind:value={subName} placeholder="Sub-skill name, e.g. Absolute value graphs" />
-          <button class="btn small primary" onclick={split} disabled={!subName.trim()}>Make sub-skill</button>
           <button class="btn small" onclick={() => (selected = [])}>Clear</button>
+          <div class="split-row">
+            <label class="sr-only" for="move-to">Move to skill</label>
+            <select id="move-to" bind:value={moveTo}>
+              <option value="">Move to another skill...</option>
+              {#each targets as t (t.id)}
+                <option value={t.id}>{t.subject === skill.subject ? '' : `${t.subject}: `}{targetName(t)}</option>
+              {/each}
+            </select>
+            <button class="btn small primary" onclick={moveSelected} disabled={!moveTo}>Move</button>
+          </div>
+          {#if !skill.parentId}
+            <div class="split-row">
+              <input type="text" bind:value={subName} placeholder="Or make a sub-skill, e.g. Absolute value graphs" />
+              <button class="btn small primary" onclick={split} disabled={!subName.trim()}>Make sub-skill</button>
+            </div>
+          {/if}
         </div>
       {/if}
       <div class="grid">
         {#each problems as p (p.id)}
           <article class="q">
             <div class="q-head">
-              {#if !skill.parentId}
-                <label class="tick">
-                  <input type="checkbox" value={p.id} bind:group={selected} />
-                  <span class="sr-only">Tick {p.label}</span>
-                </label>
-              {/if}
+              <label class="tick">
+                <input type="checkbox" value={p.id} bind:group={selected} />
+                <span class="sr-only">Tick {p.label}</span>
+              </label>
               <span class="mono small">{p.label || 'Question'}</span>
               <span class="mono muted small grow">
                 {p.mc ? 'MC' : ''}{p.mc && p.answerLetter ? ' ' + p.answerLetter : ''}
@@ -265,7 +303,14 @@
     top: 8px;
     z-index: 2;
   }
-  .split input {
+  .split-row {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 10px;
+    align-items: center;
+  }
+  .split-row input,
+  .split-row select {
     flex: 1 1 240px;
     width: auto;
   }
