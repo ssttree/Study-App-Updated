@@ -2,11 +2,11 @@
   import { untrack } from 'svelte';
   import ProblemImage from '../components/ProblemImage.svelte';
   import Snipper from '../components/Snipper.svelte';
-  import { getTask, listSkills, saveTask } from '../lib/db';
+  import { getTask, listSkills, problemSkillsByKey, saveTask } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import { findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
-  import { SUBJECTS, type Skill, type Task } from '../lib/types';
+  import { allKnown, findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
+  import { SUBJECTS, taskSkillIds, type Skill, type Task } from '../lib/types';
   import type { AnalysedSheet, DraftPair } from '../lib/practice/worksheet';
   import type { Picture } from '../lib/practice/pdf';
 
@@ -24,6 +24,10 @@
     /** A pair being fixed by hand, or the next box in snip mode. */
     fixing: { index: number; part: 'question' | 'solution' } | null;
     pendingQuestion: Picture | null;
+    /** Questions on this sheet that are in the app already. */
+    knownCount: number;
+    /** Set when every question is in the app already: the skill they are in. */
+    knownSkill: string | null;
   }
 
   /** Set when importing a SmarterEd set from the homework list. */
@@ -47,6 +51,9 @@
   const reader = () => import('../lib/practice/worksheet');
 
   listSkills().then((s) => (skills = s));
+  // Questions already in the app, so a worksheet imported before is just linked.
+  let known = new Map<string, string>();
+  problemSkillsByKey().then((m) => (known = m));
 
   async function openFiles(files: File[]) {
     error = '';
@@ -63,18 +70,23 @@
         const analysed = await lib.analyseSheet(file, (done, total) => (progress = `${file.name}: cropping ${done} of ${total}`));
         const subject = analysed.sheet.subject || task?.subject || SUBJECTS[1];
         const existing = findSkill(skills, subject, analysed.sheet.title);
+        const knownSkill = analysed.smarterEd ? allKnown(analysed.pairs.map((p) => p.key), known) : null;
+        const knownCount = analysed.pairs.filter((p) => known.has(p.key)).length;
+        for (const p of analysed.pairs) if (known.has(p.key)) p.include = false;
         sheets.push({
           id: nextId++,
           fileName: file.name,
           analysed,
           subject,
-          skill: existing?.id ?? 'new',
+          skill: knownSkill ?? existing?.id ?? 'new',
           name: analysed.sheet.title,
           dotPoint: '',
           pairs: analysed.pairs,
           showAll: false,
           fixing: analysed.smarterEd ? null : { index: -1, part: 'question' },
           pendingQuestion: null,
+          knownCount,
+          knownSkill,
         });
       } catch (e) {
         error = `Could not read ${file.name}: ${e instanceof Error ? e.message : String(e)}`;
@@ -140,12 +152,18 @@
 
   const ready = $derived(sheets.every((s) => (s.skill !== 'new' || s.name.trim()) && s.subject));
   const total = $derived(sheets.reduce((n, s) => n + s.pairs.filter((p) => p.include).length, 0));
+  const linkOnly = $derived(sheets.some((s) => s.knownSkill));
 
   async function saveAll() {
     step = 'saving';
     const out: { fileName: string; result: SaveResult }[] = [];
     try {
       for (const s of sheets) {
+        const already = s.knownSkill ? skills.find((k) => k.id === s.knownSkill) : undefined;
+        if (already) {
+          out.push({ fileName: s.fileName, result: { skill: already, added: 0, skipped: s.knownCount } });
+          continue;
+        }
         const drafts = s.pairs.filter((p) => p.include && p.question.data);
         if (!drafts.length) continue;
         progress = s.fileName;
@@ -158,9 +176,10 @@
         skills = await listSkills();
       }
       for (const s of sheets) s.analysed.pdf.destroy();
-      // Homework: link the set to its skill. An optional set just joins the skill pool.
+      // Homework: link the set to every worksheet's skill. An optional set just joins the skill pool.
       if (task && out[0]) {
-        const linked: Task = { ...task, skillId: out[0].result.skill.id };
+        const skillIds = [...new Set([...taskSkillIds(task), ...out.map((r) => r.result.skill.id)])];
+        const linked: Task = { ...task, skillIds, skillId: undefined };
         if (!task.required) Object.assign(linked, { status: 'done', finished: Date.now() });
         await saveTask(linked);
         task = linked;
@@ -224,11 +243,23 @@
     {#each sheets as s (s.id)}
       {@const look = s.pairs.filter(needsLook)}
       {@const subjectSkills = skills.filter((k) => k.subject === s.subject && !k.parentId)}
+      {#if s.knownSkill}
+        <section class="sheet panel">
+          <div class="mono muted small">{s.fileName}</div>
+          <h2>Already in the app</h2>
+          <p class="muted">
+            All {s.knownCount} questions are in the skill
+            <strong>{skills.find((k) => k.id === s.knownSkill)?.name ?? 'from before'}</strong>, so nothing needs
+            checking.{task ? ' The homework will be linked to them.' : ''}
+          </p>
+        </section>
+      {:else}
       <section class="sheet panel">
         <div class="sheet-head">
           <div>
             <div class="mono muted small">{s.fileName}</div>
             <h2>{s.analysed.smarterEd ? `${plural(s.pairs.length, 'question')} found` : 'Snip questions by hand'}</h2>
+            {#if s.knownCount}<p class="muted small">{s.knownCount} already in the app, so they're unticked.</p>{/if}
           </div>
           {#if s.analysed.smarterEd}
             <span class="mono small" class:warn={look.length > 0}>
@@ -326,10 +357,13 @@
           {/if}
         {/if}
       </section>
+      {/if}
     {/each}
 
     <div class="save-bar">
-      <button class="btn primary" onclick={saveAll} disabled={!ready || total === 0}>Save {plural(total, 'question')}</button>
+      <button class="btn primary" onclick={saveAll} disabled={!ready || (total === 0 && !linkOnly)}>
+        {total === 0 && linkOnly ? (task ? 'Link to the homework' : 'Done') : `Save ${plural(total, 'question')}`}
+      </button>
       <button class="btn" onclick={startOver}>Start over</button>
     </div>
   {:else if step === 'saving'}
@@ -345,7 +379,7 @@
           </span>
         </div>
       {/each}
-      {#if task?.skillId}
+      {#if task && taskSkillIds(task).length}
         <p class="muted">
           {task.required
             ? `Linked to the homework "${task.title}". Doing these questions in a problem session ticks it off.`
@@ -353,8 +387,8 @@
         </p>
       {/if}
       <div class="row-actions">
-        {#if task?.skillId && task.required}
-          <a class="btn primary" href={href('practice', 'run', 'skill', task.skillId)}>Do these questions now</a>
+        {#if task && taskSkillIds(task).length && task.required}
+          <a class="btn primary" href={href('practice', 'run', 'task', task.id)}>Do these questions now</a>
           <a class="btn" href={href('planner', 'homework')}>Back to homework</a>
         {:else}
           <a class="btn primary" href={href('practice')}>Go to practice</a>

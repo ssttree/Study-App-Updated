@@ -7,6 +7,8 @@
 // 3. Desk time left over goes to problems: test prep when an assessment is
 //    close, otherwise the subject that needs it most.
 // 4. Flexible windows only get optional things, so skipping one costs nothing.
+// 5. Study periods at school get revision: flashcards the bus didn't cover,
+//    then problems or test prep. Never homework.
 
 import type { Availability, DayPlan, PlanItem, StudyWindow, Task, TestPlan } from '../types';
 import { addDays, daysBetween } from './dates';
@@ -127,6 +129,7 @@ function buildDay(
   const bus = windows.filter((w) => w.kind === 'bus');
   const desk = windows.filter((w) => w.kind === 'desk');
   const flexible = windows.filter((w) => w.kind === 'flexible');
+  const school = windows.filter((w) => w.kind === 'school');
 
   // 1. Flashcards.
   const flash = input.flashMinutes(date);
@@ -139,6 +142,15 @@ function buildDay(
         want -= take;
       }
       if (want <= 0) break;
+    }
+    // Cards the bus couldn't fit go in a study period, with room left for problems.
+    for (const w of school) {
+      if (want < 5) break;
+      const take = Math.min(want, free[w.id] - (free[w.id] >= 2 * MIN_SLICE ? MIN_SLICE : 0));
+      if (take >= 5) {
+        add(w, { kind: 'flashcards', minutes: take });
+        want -= take;
+      }
     }
     // No bus today (weekends): a short block at the desk first, capped so problems still fit.
     if (!bus.length && desk.length) {
@@ -216,6 +228,14 @@ function buildDay(
       const subject = input.problemSubjects.find((s) => !used.has(s)) ?? input.problemSubjects[0];
       add(w, { kind: 'problems', minutes: free[w.id], subjects: [subject], optional: true });
     }
+  }
+
+  // 5. Study periods: revision in what is left.
+  for (const w of school) {
+    if (!choice || free[w.id] < MIN_SLICE || items.some((it) => it.windowId === w.id && it.kind !== 'flashcards')) continue;
+    const pick = choice.find((c) => !used.has(c.subject)) ?? choice[0];
+    used.add(pick.subject);
+    add(w, { kind: pick.kind, minutes: free[w.id], subjects: [pick.subject], assessmentId: pick.assessmentId });
   }
 
   // Pinned items whose window has gone (or extra time) show under "Extra time".

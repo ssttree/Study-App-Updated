@@ -1,10 +1,11 @@
 <script lang="ts">
   import ProblemImage from '../components/ProblemImage.svelte';
-  import { recordAttempt } from '../lib/db';
+  import { getTask, recordAttempt } from '../lib/db';
   import { plural } from '../lib/load';
   import { loadPractice, shortSubject, type PracticeCollection } from '../lib/practice/load';
   import {
     buildDailyMix,
+    buildHomeworkSet,
     buildSkillSet,
     buildTestPrep,
     costMinutes,
@@ -15,7 +16,7 @@
   } from '../lib/practice/mix';
   import { formatInterval, previewIntervals, RATINGS, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
-  import type { MethodChoice, MistakeTag, Skill } from '../lib/types';
+  import { taskSkillIds, type MethodChoice, type MistakeTag, type Skill } from '../lib/types';
   import type { FSRS } from 'ts-fsrs';
 
   let { parts }: { parts: string[] } = $props();
@@ -65,6 +66,10 @@
         title = plan.name;
         items = buildTestPrep(d, plan, minutes);
       }
+    } else if (kind === 'task') {
+      const task = await getTask(rest[0]);
+      title = task?.title ?? 'Homework';
+      items = task ? buildHomeworkSet(d, taskSkillIds(task), task.created, minutes) : [];
     } else if (kind === 'skill') {
       const skill = d.skills.find((s) => s.id === rest[0]);
       title = skill?.name ?? 'Skill';

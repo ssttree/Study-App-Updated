@@ -245,11 +245,15 @@ export interface Task {
   carryOvers: number;
   /** Date key of the last plan it was carried over from, so it only counts once a day. */
   carriedFrom?: string;
-  /** Practice skill made from a SmarterEd set. */
+  /** Practice skills for a SmarterEd set (one per worksheet). Use taskSkillIds() to read. */
+  skillIds?: string[];
+  /** Older single-skill link, from before a task could have several worksheets. */
   skillId?: string;
   /** Assignment milestone: the assessment it belongs to. */
   assessmentId?: string;
-  /** An attached PDF, kept in the images store. */
+  /** Attached PDFs, kept in the images store. Use taskAttachments() to read. */
+  attachments?: { id: string; name: string }[];
+  /** Older single attachment. */
   attachmentId?: string;
   attachmentName?: string;
   created: number;
@@ -257,7 +261,8 @@ export interface Task {
 }
 
 /** bus: flashcards (and light homework). desk: homework and paper problems. flexible: only optional items. */
-export type WindowKind = 'bus' | 'desk' | 'flexible';
+/** school: a study period at school, filled with revision (flashcards and problems, no homework). */
+export type WindowKind = 'bus' | 'desk' | 'flexible' | 'school';
 /** Which weekly template a window belongs to. */
 export type Season = 'all' | 'off' | 'soccer';
 
@@ -282,6 +287,9 @@ export interface Availability {
   trainingDays: number[];
   /** One-off days, by date key. Replaces the template for that day. */
   overrides: Record<string, StudyWindow[]>;
+  /** Study hours (HH:MM): home and school windows are trimmed to fit. Empty or missing means no limit. */
+  earliest?: string;
+  latest?: string;
 }
 
 export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';
@@ -344,3 +352,13 @@ export const DEFAULT_SYNC: SyncConfig = {
   pushDue: true,
   pushBlocks: true,
 };
+
+/** Every skill a homework task is linked to, old or new style. */
+export function taskSkillIds(t: Pick<Task, 'skillIds' | 'skillId'>): string[] {
+  return t.skillIds ?? (t.skillId ? [t.skillId] : []);
+}
+
+/** Every PDF attached to a homework task, old or new style. */
+export function taskAttachments(t: Pick<Task, 'attachments' | 'attachmentId' | 'attachmentName'>): { id: string; name: string }[] {
+  return t.attachments ?? (t.attachmentId ? [{ id: t.attachmentId, name: t.attachmentName ?? 'PDF' }] : []);
+}

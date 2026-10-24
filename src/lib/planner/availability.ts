@@ -57,37 +57,65 @@ export interface DayContext {
   schoolDay?: boolean;
 }
 
-/** Takes out windows that clash with a work shift, and bus windows on school holidays. */
+/** Takes out windows that clash with a work shift, and bus and school windows on school holidays. */
 export function applyContext(windows: StudyWindow[], ctx: DayContext | undefined): StudyWindow[] {
   if (!ctx) return windows;
   return windows.filter((w) => {
-    if (ctx.schoolDay === false && w.kind === 'bus') return false;
+    if (ctx.schoolDay === false && (w.kind === 'bus' || w.kind === 'school')) return false;
     const start = clockMinutes(w.start);
     const end = start + w.minutes;
     return !ctx.busy.some((b) => b.start < end && b.end > start);
   });
 }
 
+/** Windows shorter than this after trimming to your study hours are dropped. */
+export const MIN_WINDOW = 10;
+
+/**
+ * Trims windows to your study hours, like "not after 8pm". Bus windows are
+ * left alone, since the bus runs when it runs.
+ */
+export function clipToHours(windows: StudyWindow[], a: Pick<Availability, 'earliest' | 'latest'>): StudyWindow[] {
+  const from = a.earliest ? clockMinutes(a.earliest) : 0;
+  const to = a.latest ? clockMinutes(a.latest) : 24 * 60;
+  if (from <= 0 && to >= 24 * 60) return windows;
+  const out: StudyWindow[] = [];
+  for (const w of windows) {
+    if (w.kind === 'bus') {
+      out.push(w);
+      continue;
+    }
+    const start = Math.max(clockMinutes(w.start), from);
+    const end = Math.min(clockMinutes(w.start) + w.minutes, to);
+    if (end - start < MIN_WINDOW) continue;
+    out.push(start === clockMinutes(w.start) && end - start === w.minutes ? w : { ...w, start: hhmm(start), minutes: end - start });
+  }
+  return out;
+}
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
 /**
  * The study windows for one day: a one-off change if you made one (used as
- * is), else the template with your calendars applied.
+ * is), else the template with your calendars applied. Either way, trimmed to
+ * your study hours.
  */
 export function windowsFor(key: string, a: Availability, ctx?: DayContext): StudyWindow[] {
   const override = a.overrides[key];
-  const list = override ?? applyContext(templateWindows(key, a), ctx);
+  const list = clipToHours(override ?? applyContext(templateWindows(key, a), ctx), a);
   return [...list].sort((x, y) => clockMinutes(x.start) - clockMinutes(y.start));
 }
 
 /** Total minutes of each kind in a week of one template, for the summary. */
 export function weeklyMinutes(a: Availability, season: 'off' | 'soccer'): Record<StudyWindow['kind'], number> {
-  const total = { bus: 0, desk: 0, flexible: 0 };
+  const total = { bus: 0, desk: 0, flexible: 0, school: 0 };
   for (let day = 0; day < 7; day++) {
     const training = season === 'soccer' && a.trainingDays.includes(day);
-    for (const w of a.windows) {
-      if (!w.days.includes(day) || (w.season !== 'all' && w.season !== season)) continue;
-      if (training && w.kind !== 'bus' && clockMinutes(w.start) >= TRAINING_FROM) continue;
-      total[w.kind] += w.minutes;
-    }
+    const windows = a.windows.filter((w) => {
+      if (!w.days.includes(day) || (w.season !== 'all' && w.season !== season)) return false;
+      return !(training && w.kind !== 'bus' && clockMinutes(w.start) >= TRAINING_FROM);
+    });
+    for (const w of clipToHours(windows, a)) total[w.kind] += w.minutes;
   }
   return total;
 }

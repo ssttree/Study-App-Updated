@@ -7,7 +7,7 @@
   import { shortSubject } from '../lib/practice/load';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import type { Task, TestPlan } from '../lib/types';
+  import { taskSkillIds, type Task, type TestPlan } from '../lib/types';
 
   let tasks = $state.raw<Task[]>([]);
   let assessments = $state.raw<Map<string, TestPlan>>(new Map());
@@ -96,8 +96,8 @@
           </span>
           {#if t.carryOvers > 0}<span class="tag">carried over{t.carryOvers > 1 ? ` ×${t.carryOvers}` : ''}</span>{/if}
           {#if t.type === 'smartered'}
-            {#if t.skillId}
-              <a class="btn small" href={href('practice', 'run', 'skill', t.skillId)}>Do questions</a>
+            {#if taskSkillIds(t).length}
+              <a class="btn small" href={href('practice', 'run', 'task', t.id)}>Do questions</a>
             {:else}
               <a class="btn small" href={href('practice', 'import', 'task', t.id)}>Add the PDF</a>
             {/if}

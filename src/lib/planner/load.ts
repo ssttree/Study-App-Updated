@@ -19,7 +19,7 @@ import { directionsOf, studyDayEnd, studyDayStart, summarise } from '../queue';
 import { stateFor } from '../scheduler';
 import { loadPractice, type PracticeCollection } from '../practice/load';
 import { recommendSubjects } from '../practice/mix';
-import type { Availability, Card, Deck, DayPlan, ReviewLog, Settings, Task, TestPlan } from '../types';
+import { taskSkillIds, type Availability, type Card, type Deck, type DayPlan, type ReviewLog, type Settings, type Task, type TestPlan } from '../types';
 import { buildWeek, closePastDays, type BuiltDay, type PlannerInput } from './build';
 import { daysBetween, todayKey } from './dates';
 import { dayContext, type CalendarCache } from './calendar';
@@ -79,10 +79,11 @@ export function flashEstimator(cards: Card[], decks: Deck[], logsToday: ReviewLo
 export function finishedSets(tasks: Task[], practice: Pick<PracticeCollection, 'problems' | 'attempts'>, now: number): Task[] {
   const out: Task[] = [];
   for (const t of tasks) {
-    if (t.status !== 'open' || !t.skillId) continue;
-    const problems = practice.problems.filter((p) => p.skillId === t.skillId);
+    const skills = new Set(taskSkillIds(t));
+    if (t.status !== 'open' || !skills.size) continue;
+    const problems = practice.problems.filter((p) => skills.has(p.skillId));
     if (!problems.length) continue;
-    const tried = new Set(practice.attempts.filter((a) => a.at >= t.created && a.skillId === t.skillId).map((a) => a.problemId));
+    const tried = new Set(practice.attempts.filter((a) => a.at >= t.created && skills.has(a.skillId)).map((a) => a.problemId));
     if (problems.every((p) => tried.has(p.id))) out.push({ ...t, status: 'done', spent: t.minutes, finished: now });
   }
   return out;

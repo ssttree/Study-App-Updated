@@ -211,6 +211,28 @@ export function buildSkillSet(data: PracticeData, skillId: string, minutes: numb
   return items;
 }
 
+/**
+ * Homework: the task's worksheets in their own order, questions not yet tried
+ * since the homework was set first, as many as fit. Once every question has
+ * been tried it falls back to a normal set from the first worksheet.
+ */
+export function buildHomeworkSet(data: PracticeData, skillIds: string[], since: number, minutes: number, now = Date.now()): MixItem[] {
+  const tried = new Set(data.attempts.filter((a) => a.at >= since).map((a) => a.problemId));
+  const items: MixItem[] = [];
+  let left = minutes;
+  for (const id of skillIds) {
+    const skill = data.skills.find((s) => s.id === id);
+    if (!skill) continue;
+    const todo = data.problems.filter((p) => p.skillId === id && !tried.has(p.id)).sort((a, b) => a.order - b.order);
+    for (const p of todo) {
+      if (costMinutes(p) > left && items.length) return items;
+      items.push({ problem: p, skill });
+      left -= costMinutes(p);
+    }
+  }
+  return items.length || !skillIds[0] ? items : buildSkillSet(data, skillIds[0], minutes, now);
+}
+
 function fill(
   order: Skill[],
   data: PracticeData,

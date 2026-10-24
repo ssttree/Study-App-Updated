@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { deleteTask, getImage, getSettings, getTask, listSkills, listTestPlans, newId, saveImage, saveTask } from '../lib/db';
+  import { deleteImage, deleteTask, getImage, getSettings, getTask, listSkills, listTestPlans, newId, saveImage, saveTask } from '../lib/db';
   import { finishTask, reopenTask, taskFromQuick } from '../lib/planner/actions';
   import { addDays, todayKey } from '../lib/planner/dates';
   import { QUICK_MINUTES } from '../lib/planner/quickadd';
   import { go, href } from '../lib/router.svelte';
-  import { SUBJECTS, type Skill, type Task, type TaskType, type TestPlan } from '../lib/types';
+  import { SUBJECTS, taskAttachments, taskSkillIds, type Skill, type Task, type TaskType, type TestPlan } from '../lib/types';
 
   /** assessmentId: start as a milestone of this assignment. */
   let { id, assessmentId }: { id: string; assessmentId?: string } = $props();
@@ -49,7 +49,36 @@
   }
   load();
 
-  const skill = $derived(task?.skillId ? skills.find((s) => s.id === task!.skillId) : undefined);
+  const linked = $derived(task ? taskSkillIds(task).map((id) => skills.find((s) => s.id === id)).filter((s): s is Skill => !!s) : []);
+  const files = $derived(task ? taskAttachments(task) : []);
+  // Sets already in the app that could be linked, this subject first.
+  const linkable = $derived(
+    task
+      ? skills
+          .filter((s) => !s.parentId && !linked.some((l) => l.id === s.id))
+          .sort((a, b) => Number(b.subject === task!.subject) - Number(a.subject === task!.subject) || a.name.localeCompare(b.name))
+      : [],
+  );
+  let pickSkill = $state('');
+
+  async function persist() {
+    if (task && !isNew) await saveTask($state.snapshot(task));
+  }
+
+  async function linkSkill() {
+    if (!task || !pickSkill) return;
+    task.skillIds = [...taskSkillIds(task), pickSkill];
+    task.skillId = undefined;
+    pickSkill = '';
+    await persist();
+  }
+
+  async function unlinkSkill(id: string) {
+    if (!task) return;
+    task.skillIds = taskSkillIds(task).filter((s) => s !== id);
+    task.skillId = undefined;
+    await persist();
+  }
 
   async function save() {
     if (!task) return;
@@ -80,31 +109,46 @@
 
   async function attach(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
+    const picked = [...(input.files ?? [])];
     input.value = '';
-    if (!file || !task) return;
-    if (file.size > 15 * 1024 * 1024) return void (error = 'That PDF is over 15 MB, which is too big to keep in the browser.');
+    if (!picked.length || !task) return;
+    error = '';
     pdfBusy = true;
     try {
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-      const imageId = task.attachmentId ?? newId();
-      await saveImage({ id: imageId, data, width: 0, height: 0 });
-      task.attachmentId = imageId;
-      task.attachmentName = file.name;
-      if (!isNew) await saveTask($state.snapshot(task));
+      const list = taskAttachments(task);
+      for (const file of picked) {
+        if (file.size > 15 * 1024 * 1024) {
+          error = `${file.name} is over 15 MB, which is too big to keep in the browser.`;
+          continue;
+        }
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        const id = newId();
+        await saveImage({ id, data, width: 0, height: 0 });
+        list.push({ id, name: file.name });
+      }
+      task.attachments = list;
+      task.attachmentId = task.attachmentName = undefined;
+      await persist();
     } finally {
       pdfBusy = false;
     }
   }
 
-  async function openPdf() {
-    if (!task?.attachmentId) return;
-    const image = await getImage(task.attachmentId);
+  async function removePdf(id: string) {
+    if (!task) return;
+    task.attachments = taskAttachments(task).filter((f) => f.id !== id);
+    task.attachmentId = task.attachmentName = undefined;
+    await deleteImage(id);
+    await persist();
+  }
+
+  async function openPdf(id: string) {
+    const image = await getImage(id);
     if (!image) return;
     const blob = await (await fetch(image.data)).blob();
     window.open(URL.createObjectURL(blob), '_blank');
@@ -167,34 +211,49 @@
 
     <section class="panel pdf">
       {#if task.type === 'smartered'}
-        <h2>SmarterEd set</h2>
-        {#if skill}
-          <p class="muted">
-            Linked to the skill <a href={href('practice', 'skill', skill.id)}>{skill.name}</a>. It ticks itself off once you
-            have done every question in a problem session.
-          </p>
-          <div><a class="btn primary" href={href('practice', 'run', 'skill', skill.id)}>Do these questions</a></div>
-        {:else}
-          <p class="muted">
-            Add the worksheet PDF and the app cuts out the questions and worked solutions, the same as a practice import.
-            {task.required ? '' : 'Since it is optional, it joins your skill pool and comes up in your daily mix.'}
-          </p>
+        <h2>SmarterEd questions</h2>
+        <p class="muted small">
+          Add the worksheet PDFs (as many as you like). The app reads each one: questions it has already are just linked,
+          and new ones are cut out like a practice import. Or pick a set that's already in the app.
+          {task.required ? '' : 'Since it is optional, the sets join your skill pool and come up in your daily mix.'}
+        </p>
+        {#each linked as k (k.id)}
+          <div class="file">
+            <a class="grow" href={href('practice', 'skill', k.id)}>{k.name}</a>
+            <button class="btn small" onclick={() => unlinkSkill(k.id)}>Unlink</button>
+          </div>
+        {/each}
+        <div class="actions">
+          {#if linked.length}<a class="btn primary" href={href('practice', 'run', 'task', task.id)}>Do these questions</a>{/if}
           {#if isNew}
-            <p class="muted small">Save it first, then add the PDF from the homework list.</p>
+            <span class="muted small">Save it first to add PDFs.</span>
           {:else}
-            <div><a class="btn primary" href={href('practice', 'import', 'task', task.id)}>Add the PDF</a></div>
+            <a class="btn" href={href('practice', 'import', 'task', task.id)}>{linked.length ? 'Add more PDFs' : 'Add the PDFs'}</a>
           {/if}
+        </div>
+        {#if linkable.length}
+          <div class="pick">
+            <select bind:value={pickSkill} aria-label="Set already in the app">
+              <option value="">Pick a set already in the app...</option>
+              {#each linkable as k (k.id)}<option value={k.id}>{k.subject === task.subject ? '' : `${k.subject}: `}{k.name}</option>{/each}
+            </select>
+            <button class="btn small" onclick={linkSkill} disabled={!pickSkill}>Link</button>
+          </div>
         {/if}
       {:else}
-        <h2>Attached PDF</h2>
-        {#if task.attachmentId}
-          <div class="actions">
-            <button class="btn" onclick={openPdf}>Open {task.attachmentName ?? 'PDF'}</button>
-            <label class="btn">Replace<input class="sr-only" type="file" accept="application/pdf" onchange={attach} /></label>
+        <h2>Attached PDFs</h2>
+        {#each files as f (f.id)}
+          <div class="file">
+            <button class="linkish grow" onclick={() => openPdf(f.id)}>{f.name}</button>
+            <button class="btn small" onclick={() => removePdf(f.id)}>Remove</button>
           </div>
-        {:else}
-          <label class="btn">{pdfBusy ? 'Saving...' : 'Attach a PDF'}<input class="sr-only" type="file" accept="application/pdf" onchange={attach} /></label>
-        {/if}
+        {/each}
+        <div>
+          <label class="btn">
+            {pdfBusy ? 'Saving...' : files.length ? 'Add more PDFs' : 'Attach PDFs'}
+            <input class="sr-only" type="file" accept="application/pdf" multiple onchange={attach} />
+          </label>
+        </div>
       {/if}
     </section>
 
@@ -226,6 +285,35 @@
   h2 {
     font-size: 15px;
     font-weight: 700;
+  }
+  .linkish {
+    background: none;
+    border: 0;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+  .pick {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .pick select {
+    flex: 1;
+    min-width: 0;
+  }
+  .file {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+  }
+  .grow {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
   }
   .fields {
     display: grid;

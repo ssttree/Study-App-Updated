@@ -111,7 +111,7 @@
     {:else if route.name === 'plan'}
       <PlanEditor id={route.id} from={route.from} />
     {:else if route.name === 'planner'}
-      <Planner />
+      <Planner day={route.day} />
     {:else if route.name === 'homework'}
       <Homework />
     {:else if route.name === 'task'}

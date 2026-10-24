@@ -3,19 +3,23 @@
 import { href } from '../router.svelte';
 import { reviewHref } from '../filters';
 import { shortSubject } from '../practice/load';
-import type { PlanItem, StudyWindow, Task, TestPlan, WindowKind } from '../types';
+import { taskSkillIds, type PlanItem, type StudyWindow, type Task, type TestPlan, type WindowKind } from '../types';
 import { clockMinutes, clockText, dueLabel } from './dates';
+
+export const KINDS: WindowKind[] = ['bus', 'desk', 'flexible', 'school'];
 
 export const KIND_TEXT: Record<WindowKind, string> = {
   bus: 'Bus',
   desk: 'Desk',
   flexible: 'Flexible',
+  school: 'Study period',
 };
 
 export const KIND_HINT: Record<WindowKind, string> = {
   bus: 'Flashcards, and short homework if the desk is full',
   desk: 'Homework, then problems on paper',
   flexible: 'Only optional things, so skipping it costs nothing',
+  school: 'At school: revision only (flashcards, then problems or test prep)',
 };
 
 export function windowTime(w: StudyWindow): string {
@@ -63,7 +67,7 @@ export function itemLink(item: PlanItem, tasks: Map<string, Task>): string {
     case 'homework': {
       const t = item.taskId ? tasks.get(item.taskId) : undefined;
       if (t?.type === 'smartered') {
-        return t.skillId ? href('practice', 'run', 'skill', t.skillId, minutes) : href('practice', 'import', 'task', t.id);
+        return taskSkillIds(t).length ? href('practice', 'run', 'task', t.id, minutes) : href('practice', 'import', 'task', t.id);
       }
       return href('planner', 'task', item.taskId ?? 'new');
     }

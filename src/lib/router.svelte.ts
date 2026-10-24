@@ -21,7 +21,7 @@ export type Route =
   | { name: 'plans' }
   | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
-  | { name: 'planner' }
+  | { name: 'planner'; day?: string }
   | { name: 'homework' }
   | { name: 'task'; id: string; assessmentId?: string }
   | { name: 'windows' }
@@ -94,6 +94,8 @@ function plannerRoute(rest: string[]): Route {
   switch (sub) {
     case undefined:
       return { name: 'planner' };
+    case 'day':
+      return { name: 'planner', day: more[0] };
     case 'homework':
       return { name: 'homework' };
     case 'task':

@@ -74,17 +74,23 @@ works with no internet once it has been opened once.
   `ext1`, `ext2`, `eng` (English), `engin` (Engineering), `bus`. Days: `today`, `tmr`, `fri`, `next fri`, `3/11`.
   Time: `20m`, `1h`, `1h30`. Add `set` for a SmarterEd set and `opt` if it's optional. Anything it can't find
   defaults to due tomorrow, 20 minutes.
-- **SmarterEd sets as homework**: "Add the PDF" runs the normal practice import and links the set to its skill.
-  Doing every question in a problem session ticks the homework off. Optional sets just join the skill pool.
+- **SmarterEd sets as homework**: add one or more worksheet PDFs. A worksheet whose questions are all in the
+  app already is recognised and just linked; new ones run the normal practice import. You can also link a set
+  that's already in the app without a PDF. "Do questions" works through every linked worksheet in order,
+  questions you haven't tried yet first, and doing them all ticks the homework off. Optional sets just join
+  the skill pool. Other homework can have any number of PDFs attached.
 - **Study windows** (Planner, Study windows): the times you *can* study each week. Bus windows get flashcards,
-  desk windows get homework then problems, flexible windows (like Tuesday night) only get optional things.
+  desk windows get homework then problems, flexible windows (like Tuesday night) only get optional things,
+  and school study periods get revision (flashcards the bus didn't cover, then problems or test prep).
+  Study hours (like "not after 8pm") trim every window except the bus.
   Off season and soccer season have their own windows; on training nights in season, desk windows from 4pm
   drop out. Any single day can be changed by hand.
 - **Daily plan**: built every time you open the planner. Flashcards go on the bus (never under 10 minutes),
   required homework goes to the desk due soonest first, and what is left goes to problems (test prep when a
   test is close). If homework due tomorrow won't fit, it says so. Tick, skip, pin, send to tomorrow, move to
   any window (or drag in the week view), swap the problem subject, or press "I've got 20 more minutes".
-  Anything you touched stays put when the plan rebuilds.
+  Anything you touched stays put when the plan rebuilds. Click a day in the week to open it in full, with
+  the same tools and a way to change just that day's windows.
 - **Carry-overs**: homework planned for a day and not finished rolls on with a "carried over" tag. After two,
   the planner asks whether to pick a new date, shrink it or drop it.
 - **Exams and assessments** (Planner, Exams): class tests ramp up 21, 7 and 2 days out; trials and the HSC

@@ -115,3 +115,15 @@ export async function saveProblems(
 export function pairByOrder<Q, S>(questions: Q[], solutions: S[]): { question: Q; solution?: S }[] {
   return questions.map((question, i) => ({ question, solution: solutions[i] }));
 }
+
+/**
+ * The skill a worksheet's questions are already saved in, when every one of
+ * them is (the most common skill if they were spread out). Null when any
+ * question is new.
+ */
+export function allKnown(keys: string[], known: Map<string, string>): string | null {
+  if (!keys.length || !keys.every((k) => known.has(k))) return null;
+  const count = new Map<string, number>();
+  for (const k of keys) count.set(known.get(k)!, (count.get(known.get(k)!) ?? 0) + 1);
+  return [...count].sort((a, b) => b[1] - a[1])[0][0];
+}

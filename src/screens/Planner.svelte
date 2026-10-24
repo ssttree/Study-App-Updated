@@ -23,7 +23,15 @@
   import { shortSubject } from '../lib/practice/load';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import type { PlanItem, StudyWindow, Task } from '../lib/types';
+  import { saveAvailability } from '../lib/db';
+  import { untrack } from 'svelte';
+  import { KINDS } from '../lib/planner/labels';
+  import type { Availability, PlanItem, StudyWindow, Task } from '../lib/types';
+
+  /** A date key: show that day in full instead of today. */
+  let { day: dayProp }: { day?: string } = $props();
+  // The page is rebuilt for a new address, so the first value is the only one.
+  const dayKey = untrack(() => dayProp);
 
   let data = $state.raw<PlannerData | null>(null);
   let busy = $state(false);
@@ -54,17 +62,20 @@
   const tasks = $derived(new Map((data?.tasks ?? []).map((t) => [t.id, t])));
   const assessments = $derived(new Map((data?.assessments ?? []).map((a) => [a.id, a])));
   const today = $derived(data?.days[0]);
+  /** The day shown in full: today, or the one picked in the week. */
+  const shown = $derived(data ? (data.days.find((d) => d.date === dayKey) ?? data.days[0]) : undefined);
+  const isToday = $derived(!!shown && !!data && shown.date === data.today);
 
   /** Flashcards count as done once nothing is left to review today. */
-  function isDone(item: PlanItem): boolean {
+  function isDone(item: PlanItem, date = data?.today): boolean {
     if (item.status === 'done') return true;
-    return item.kind === 'flashcards' && !!data && data.cardsLeft === 0 && data.logsToday.length > 0;
+    return item.kind === 'flashcards' && !!data && date === data.today && data.cardsLeft === 0 && data.logsToday.length > 0;
   }
 
   /** The next thing: the first unfinished item in a window that hasn't ended yet, else anything left. */
   const next = $derived.by(() => {
     if (!today || !data) return undefined;
-    const open = today.plan.items.filter((it) => it.status === 'todo' && !isDone(it) && !it.optional);
+    const open = today.plan.items.filter((it) => it.status === 'todo' && !isDone(it, today.date) && !it.optional);
     const d = new Date(data.now);
     const nowMinutes = d.getHours() * 60 + d.getMinutes();
     const ends = (it: PlanItem) => {
@@ -168,11 +179,46 @@
     return out;
   }
 
+  // Changing one day's windows (stored as a one-off day, like on the Study windows page).
+  let editing = $state<StudyWindow[] | null>(null);
+  const isOneOff = $derived(!!shown && !!data && !!data.input.availability.overrides[shown.date]);
+
+  function editWindows() {
+    if (!shown) return;
+    editing = shown.windows.map((w) => ({ ...w, days: [] }));
+  }
+  function addWindow() {
+    editing?.push({ id: crypto.randomUUID(), name: 'Extra', days: [], start: '16:00', minutes: 45, kind: 'desk', season: 'all' });
+  }
+  async function saveDay(windows: StudyWindow[] | null) {
+    if (!data || !shown) return;
+    const a: Availability = structuredClone(data.input.availability);
+    if (windows) {
+      a.overrides[shown.date] = windows.map((w) => ({ ...w, minutes: Math.max(5, Math.round(Number(w.minutes) || 30)) }));
+    } else {
+      delete a.overrides[shown.date];
+    }
+    editing = null;
+    await act(() => saveAvailability(a));
+  }
+
   const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
 </script>
 
 <main class="page wide">
-  {#if data && today}
+  {#if data && today && shown && !isToday}
+    <section class="hero">
+      <div class="eyebrow"><a href={href('planner')}>Planner</a> / {dayLabel(shown.date, data.today)}</div>
+      <h1>{new Date(shown.date + 'T12:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
+      <p class="lead muted">
+        {minutesText(planned(shown))} planned in {plural(shown.windows.length, 'window')}. Tick, move or skip anything, or change
+        this day's windows below.
+      </p>
+      <div class="actions"><a class="btn" href={href('planner')}>Back to today</a></div>
+    </section>
+    {#each shown.warnings as w (w)}<div class="notice warn">{w}</div>{/each}
+    {#each shifts(shown.date) as s (s)}<div class="notice">{s}</div>{/each}
+  {:else if data && today}
     <section class="hero">
       <div class="eyebrow accent">
         Planner · {new Date(data.now).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -228,37 +274,40 @@
       </div>
     {/each}
 
+  {/if}
+
+  {#if data && today && shown}
     <section>
       <div class="section-head">
-        <h2>Today</h2>
-        <span class="mono muted small">{minutesText(planned(today))} planned</span>
+        <h2>{isToday ? 'Today' : dayLabel(shown.date, data.today)}</h2>
+        <span class="mono muted small">{minutesText(planned(shown))} planned</span>
       </div>
-      {#each groups(today) as g (g.id)}
+      {#each groups(shown) as g (g.id)}
         <div
           class="window"
-          class:over={over === `${today.date}|${g.id}`}
+          class:over={over === `${shown.date}|${g.id}`}
           role="list"
-          ondragover={(e) => dragOver(e, `${today.date}|${g.id}`)}
+          ondragover={(e) => dragOver(e, `${shown.date}|${g.id}`)}
           ondragleave={() => (over = null)}
-          ondrop={(e) => drop(e, today.date, g.id)}
+          ondrop={(e) => drop(e, shown.date, g.id)}
         >
           <div class="window-head">
             <span class="wname">{g.window?.name ?? 'Extra time'}</span>
             {#if g.window}
               <span class="mono muted small">{windowTime(g.window)} · {KIND_TEXT[g.window.kind]}</span>
-              {#if today.free[g.id] >= 5}<span class="mono dim small">{today.free[g.id]} min free</span>{/if}
+              {#if shown.free[g.id] >= 5}<span class="mono dim small">{shown.free[g.id]} min free</span>{/if}
             {/if}
           </div>
           {#each g.items as item (item.id)}
             {@const text = itemText(item, tasks, assessments, data.today)}
-            {@const done = isDone(item)}
+            {@const done = isDone(item, shown.date)}
             <div
               class="item"
               class:done
               class:skipped={item.status === 'skipped'}
               role="listitem"
               draggable={item.status === 'todo'}
-              ondragstart={(e) => dragStart(e, today, item)}
+              ondragstart={(e) => dragStart(e, shown, item)}
               ondragend={() => (dragging = over = null)}
             >
               <input
@@ -267,7 +316,7 @@
                 checked={done}
                 disabled={busy || item.status === 'skipped' || (item.kind === 'flashcards' && done && item.status !== 'done')}
                 aria-label="Done: {text.title}"
-                onchange={() => act(() => (item.status === 'done' ? reopenItem(today, item, data!.tasks) : completeItem(today, item, data!.tasks)))}
+                onchange={() => act(() => (item.status === 'done' ? reopenItem(shown, item, data!.tasks) : completeItem(shown, item, data!.tasks)))}
               />
               <span class="dot" style:background={itemColour(item)}></span>
               <span class="what">
@@ -284,24 +333,24 @@
               <span class="mono small mins">{item.minutes} min</span>
               <span class="tools">
                 {#if item.status === 'skipped'}
-                  <button class="btn small" onclick={() => act(() => reopenItem(today, item, data!.tasks))}>Undo skip</button>
+                  <button class="btn small" onclick={() => act(() => reopenItem(shown, item, data!.tasks))}>Undo skip</button>
                 {:else if !done}
-                  <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(today, item)}>Start</a>
+                  <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(shown, item)}>Start</a>
                   <details class="more">
                     <summary class="btn small">More</summary>
                     <div class="more-tools">
                       {#if item.kind === 'problems' && subjects.length > 1}
                         <label class="sr-only" for="subj-{item.id}">Problem subject</label>
-                        <select id="subj-{item.id}" class="mini" onchange={(e) => onSubject(today, item, e)}>
+                        <select id="subj-{item.id}" class="mini" onchange={(e) => onSubject(shown, item, e)}>
                           <option value="">Swap subject</option>
                           {#each subjects.filter((s) => !item.subjects?.includes(s)) as s (s)}<option value={s}>{shortSubject(s)}</option>{/each}
                         </select>
                       {/if}
-                      <button class="btn small" onclick={() => act(() => togglePin(today, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
-                      <button class="btn small" onclick={() => snooze(today, item)} disabled={busy}>Tomorrow</button>
-                      <button class="btn small" onclick={() => act(() => skipItem(today, item))}>Skip</button>
+                      <button class="btn small" onclick={() => act(() => togglePin(shown, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
+                      <button class="btn small" onclick={() => snooze(shown, item)} disabled={busy}>Tomorrow</button>
+                      <button class="btn small" onclick={() => act(() => skipItem(shown, item))}>Skip</button>
                       <label class="sr-only" for="move-{item.id}">Move to</label>
-                      <select id="move-{item.id}" class="mini" onchange={(e) => onMove(today, item, e)}>
+                      <select id="move-{item.id}" class="mini" onchange={(e) => onMove(shown, item, e)}>
                         <option value="">Move to</option>
                         {#each moveTargets() as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
                       </select>
@@ -315,8 +364,46 @@
           {/each}
         </div>
       {:else}
-        <p class="muted">No study windows today. <a href={href('planner', 'windows')}>Change your windows</a></p>
+        <p class="muted">No study windows {isToday ? 'today' : 'this day'}.</p>
       {/each}
+    </section>
+
+
+    <section class="panel day-edit">
+      {#if editing}
+        <h2>Windows for {dayLabel(shown.date, data.today)}</h2>
+        {#each editing as w, i (w.id)}
+          <div class="edit-row">
+            <input class="name-in" type="text" bind:value={w.name} aria-label="Name" />
+            <input type="time" bind:value={w.start} aria-label="Starts" />
+            <input class="mins-in" type="number" min="5" step="5" bind:value={w.minutes} aria-label="Minutes" />
+            <select bind:value={w.kind} aria-label="Kind">
+              {#each KINDS as k (k)}<option value={k}>{KIND_TEXT[k]}</option>{/each}
+            </select>
+            <button class="btn small" onclick={() => editing!.splice(i, 1)}>Remove</button>
+          </div>
+        {:else}
+          <p class="muted small">No windows: a day off.</p>
+        {/each}
+        <div class="actions">
+          <button class="btn small" onclick={addWindow}>Add a window</button>
+          <button class="btn small primary" onclick={() => saveDay($state.snapshot(editing))} disabled={busy}>Save this day</button>
+          <button class="btn small" onclick={() => (editing = null)}>Cancel</button>
+        </div>
+      {:else}
+        <div class="day-edit-line">
+          <span class="muted small grow">
+            {isOneOff ? 'This day has its own windows.' : 'This day uses your normal weekly windows.'}
+            Changes here only affect {isToday ? 'today' : 'this day'}.
+          </span>
+          <button class="btn small" onclick={editWindows}>Change this day's windows</button>
+          {#if isOneOff}
+            <button class="btn small" onclick={() => saveDay(null)} disabled={busy}>Back to normal</button>
+          {:else}
+            <button class="btn small" onclick={() => saveDay([])} disabled={busy}>Make it a day off</button>
+          {/if}
+        </div>
+      {/if}
     </section>
 
     <section>
@@ -326,11 +413,11 @@
       </div>
       <div class="week">
         {#each data.days as day (day.date)}
-          <div class="day" class:today={day.date === data.today}>
-            <div class="day-head">
+          <div class="day" class:today={day.date === data.today} class:selected={day.date === shown.date}>
+            <a class="day-head" href={day.date === data.today ? href('planner') : href('planner', 'day', day.date)} title="Open this day">
               <strong>{dayLabel(day.date, data.today)}</strong>
               <span class="mono dim small">{minutesText(planned(day))}</span>
-            </div>
+            </a>
             {#each day.warnings as w (w)}<div class="mini-warn small" title={w}>Homework won't fit</div>{/each}
             {#each shifts(day.date) as s (s)}<div class="shift mono">{s}</div>{/each}
             {#each groups(day) as g (g.id)}
@@ -348,7 +435,7 @@
                   {@const text = itemText(item, tasks, assessments, data.today)}
                   <div
                     class="chip"
-                    class:done={isDone(item)}
+                    class:done={isDone(item, day.date)}
                     class:skipped={item.status === 'skipped'}
                     class:pinned={item.pinned}
                     role="listitem"
@@ -598,6 +685,42 @@
     justify-content: space-between;
     align-items: baseline;
     font-size: 14px;
+    color: inherit;
+    text-decoration: none;
+    border-radius: 6px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+  }
+  .day-head:hover strong {
+    text-decoration: underline;
+  }
+  .day.selected {
+    border-color: var(--accent);
+  }
+  .day-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+  .day-edit h2 {
+    font-size: 15px;
+  }
+  .day-edit-line,
+  .edit-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .edit-row .name-in {
+    flex: 1 1 160px;
+  }
+  .edit-row .mins-in {
+    width: 80px;
+  }
+  .grow {
+    flex: 1 1 240px;
   }
   .slot {
     display: flex;
