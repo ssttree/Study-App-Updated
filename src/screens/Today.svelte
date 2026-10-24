@@ -6,12 +6,19 @@
   import { backupOverdue, downloadBackup } from '../lib/backup';
   import { reviewHref } from '../lib/filters';
   import { href } from '../lib/router.svelte';
+  import { loadPractice, shortSubject } from '../lib/practice/load';
+  import { recommendSubjects } from '../lib/practice/mix';
 
   let data = $state.raw<Collection | null>(null);
   let backingUp = $state(false);
 
+  let problems = $state.raw<{ subject: string; reason: string; minutes: number } | null>(null);
+
   async function load() {
     data = await loadCollection();
+    const p = await loadPractice();
+    const top = recommendSubjects(p, Date.now(), p.dayEnd)[0];
+    problems = top ? { subject: top.subject, reason: top.reason, minutes: p.settings.problemMinutes } : null;
   }
   load();
 
@@ -95,6 +102,14 @@
           <a class="btn" href={href('decks')}>Add cards</a>
         </div>
       </section>
+    {/if}
+
+    {#if problems}
+      <a class="row problems" href={href('practice')}>
+        <span class="dot" style:background="var(--accent)"></span>
+        <span class="name"><strong>Problem block</strong> · {shortSubject(problems.subject)} on paper, about {problems.minutes} min</span>
+        <span class="mono muted small">{problems.reason}</span>
+      </a>
     {/if}
 
     {#if data.cards.length > 0 && backupOverdue(data.settings)}
@@ -197,6 +212,15 @@
     color: var(--text);
     text-decoration: none;
     min-height: 44px;
+  }
+  .problems {
+    color: var(--text);
+    text-decoration: none;
+    min-height: 56px;
+    border-bottom: 1px solid var(--line);
+  }
+  .problems:hover strong {
+    color: var(--accent);
   }
   .subject:hover .name {
     color: var(--accent);

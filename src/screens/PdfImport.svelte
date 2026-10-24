@@ -1,0 +1,500 @@
+<script lang="ts">
+  import ProblemImage from '../components/ProblemImage.svelte';
+  import Snipper from '../components/Snipper.svelte';
+  import { listSkills } from '../lib/db';
+  import { plural } from '../lib/load';
+  import { href } from '../lib/router.svelte';
+  import { findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
+  import { SUBJECTS, type Skill } from '../lib/types';
+  import type { AnalysedSheet, DraftPair } from '../lib/practice/worksheet';
+  import type { Picture } from '../lib/practice/pdf';
+
+  interface SheetState {
+    id: number;
+    fileName: string;
+    analysed: AnalysedSheet;
+    subject: string;
+    /** 'new' or an existing skill's id. */
+    skill: string;
+    name: string;
+    dotPoint: string;
+    pairs: DraftPair[];
+    showAll: boolean;
+    /** A pair being fixed by hand, or the next box in snip mode. */
+    fixing: { index: number; part: 'question' | 'solution' } | null;
+    pendingQuestion: Picture | null;
+  }
+
+  type Step = 'pick' | 'reading' | 'review' | 'saving' | 'done';
+  let step = $state<Step>('pick');
+  let error = $state('');
+  let dragging = $state(false);
+  let progress = $state('');
+  let sheets = $state<SheetState[]>([]);
+  let skills = $state.raw<Skill[]>([]);
+  let results = $state.raw<{ fileName: string; result: SaveResult }[]>([]);
+  let nextId = 0;
+
+  // PDF.js is large, so it only loads once a PDF is picked.
+  const reader = () => import('../lib/practice/worksheet');
+
+  listSkills().then((s) => (skills = s));
+
+  async function openFiles(files: File[]) {
+    error = '';
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    if (!pdfs.length) {
+      error = 'Pick one or more PDF files.';
+      return;
+    }
+    step = 'reading';
+    const lib = await reader();
+    for (const [n, file] of pdfs.entries()) {
+      progress = `${file.name} (${n + 1} of ${pdfs.length})`;
+      try {
+        const analysed = await lib.analyseSheet(file, (done, total) => (progress = `${file.name}: cropping ${done} of ${total}`));
+        const subject = analysed.sheet.subject || SUBJECTS[1];
+        const existing = findSkill(skills, subject, analysed.sheet.title);
+        sheets.push({
+          id: nextId++,
+          fileName: file.name,
+          analysed,
+          subject,
+          skill: existing?.id ?? 'new',
+          name: analysed.sheet.title,
+          dotPoint: '',
+          pairs: analysed.pairs,
+          showAll: false,
+          fixing: analysed.smarterEd ? null : { index: -1, part: 'question' },
+          pendingQuestion: null,
+        });
+      } catch (e) {
+        error = `Could not read ${file.name}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    step = sheets.length ? 'review' : 'pick';
+  }
+
+  function pick(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    openFiles(files);
+  }
+
+  function drop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    openFiles([...(e.dataTransfer?.files ?? [])]);
+  }
+
+  const needsLook = (p: DraftPair) => p.problems.length > 0;
+
+  function onPicked(sheet: SheetState, picture: Picture) {
+    const f = sheet.fixing;
+    if (!f) return;
+    if (f.index >= 0) {
+      const pair = sheet.pairs[f.index];
+      if (f.part === 'question') pair.question = picture;
+      else pair.solution = picture;
+      pair.include = true;
+      pair.problems = pair.problems.filter((p) => (f.part === 'question' ? !/^Question|^No question/.test(p) : !/solution/i.test(p)));
+      sheet.fixing = null;
+      return;
+    }
+    // Snip mode: a question box, then its solution box.
+    if (f.part === 'question') {
+      sheet.pendingQuestion = picture;
+      sheet.fixing = { index: -1, part: 'solution' };
+    } else {
+      addSnipped(sheet, picture);
+    }
+  }
+
+  function addSnipped(sheet: SheetState, solution: Picture | null) {
+    if (!sheet.pendingQuestion) return;
+    const n = sheet.pairs.length + 1;
+    sheet.pairs.push({
+      number: n,
+      header: '',
+      label: `Q${n}`,
+      marks: 2,
+      mc: false,
+      key: `snip:${sheet.fileName}:${sheet.pendingQuestion.data.length}:${sheet.pendingQuestion.data.slice(-40)}`,
+      question: sheet.pendingQuestion,
+      solution,
+      problems: [],
+      include: true,
+    });
+    sheet.pendingQuestion = null;
+    sheet.fixing = { index: -1, part: 'question' };
+  }
+
+  const ready = $derived(sheets.every((s) => (s.skill !== 'new' || s.name.trim()) && s.subject));
+  const total = $derived(sheets.reduce((n, s) => n + s.pairs.filter((p) => p.include).length, 0));
+
+  async function saveAll() {
+    step = 'saving';
+    const out: { fileName: string; result: SaveResult }[] = [];
+    try {
+      for (const s of sheets) {
+        const drafts = s.pairs.filter((p) => p.include && p.question.data);
+        if (!drafts.length) continue;
+        progress = s.fileName;
+        const choice =
+          s.skill === 'new'
+            ? ({ kind: 'new', subject: s.subject, name: s.name, topic: s.analysed.sheet.topic, code: s.analysed.sheet.code, dotPoint: s.dotPoint } as const)
+            : ({ kind: 'existing', id: s.skill } as const);
+        const result = await saveProblems(choice, drafts, s.analysed.smarterEd ? 'smartered' : 'snip', s.name || s.fileName);
+        out.push({ fileName: s.fileName, result });
+        skills = await listSkills();
+      }
+      for (const s of sheets) s.analysed.pdf.destroy();
+      results = out;
+      sheets = [];
+      step = 'done';
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      step = 'review';
+    }
+  }
+
+  function startOver() {
+    for (const s of sheets) s.analysed.pdf.destroy();
+    sheets = [];
+    results = [];
+    step = 'pick';
+  }
+</script>
+
+<main class="page wide">
+  <section class="head">
+    <div class="eyebrow"><a href={href('practice')}>Practice</a> / Import</div>
+    <h1>Import SmarterEd PDFs</h1>
+    <p class="muted">
+      Drop in one or more worksheets. The app finds each question and its worked solution and cuts them out as
+      pictures. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
+      taught it. Pairs that look right are ticked already; you only need to check the ones marked.
+    </p>
+  </section>
+
+  {#if error}<div class="notice warn">{error}</div>{/if}
+
+  {#if step === 'pick' || step === 'reading'}
+    <label
+      class="drop panel"
+      class:dragging
+      ondragover={(e) => {
+        e.preventDefault();
+        dragging = true;
+      }}
+      ondragleave={() => (dragging = false)}
+      ondrop={drop}
+    >
+      {#if step === 'reading'}
+        <span class="big">Reading...</span>
+        <span class="muted mono small">{progress}</span>
+      {:else}
+        <span class="big">Drop PDFs here</span>
+        <span class="muted">or click to choose. You can pick several at once.</span>
+        <input class="sr-only" type="file" accept="application/pdf,.pdf" multiple onchange={pick} />
+      {/if}
+    </label>
+    <p class="muted small">
+      Other PDFs, like class notes with questions in them, work too: the app shows the pages and you drag a box
+      around each question, then its answer.
+    </p>
+  {:else if step === 'review'}
+    {#each sheets as s (s.id)}
+      {@const look = s.pairs.filter(needsLook)}
+      {@const subjectSkills = skills.filter((k) => k.subject === s.subject && !k.parentId)}
+      <section class="sheet panel">
+        <div class="sheet-head">
+          <div>
+            <div class="mono muted small">{s.fileName}</div>
+            <h2>{s.analysed.smarterEd ? `${plural(s.pairs.length, 'question')} found` : 'Snip questions by hand'}</h2>
+          </div>
+          {#if s.analysed.smarterEd}
+            <span class="mono small" class:warn={look.length > 0}>
+              {look.length ? `${look.length} to check` : 'All paired'}
+            </span>
+          {/if}
+        </div>
+
+        <div class="fields">
+          <label class="field">
+            Subject
+            <select bind:value={s.subject}>
+              {#each SUBJECTS as sub (sub)}<option value={sub}>{sub}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            Skill
+            <select bind:value={s.skill}>
+              <option value="new">New skill</option>
+              {#each subjectSkills as k (k.id)}<option value={k.id}>Add to: {k.name}</option>{/each}
+            </select>
+          </label>
+          {#if s.skill === 'new'}
+            <label class="field">Skill name<input type="text" bind:value={s.name} /></label>
+            <label class="field">Dot point (optional)<input type="text" bind:value={s.dotPoint} placeholder="e.g. ME-F2.1" /></label>
+          {/if}
+        </div>
+        {#if s.analysed.sheet.topic && s.skill === 'new'}
+          <p class="muted small topic">Topic: {s.analysed.sheet.topic}</p>
+        {/if}
+
+        {#if s.fixing}
+          <div class="fix">
+            {#if s.fixing.index >= 0}
+              <Snipper
+                pdf={s.analysed.pdf}
+                prompt={`Question ${s.pairs[s.fixing.index].number}: box the ${s.fixing.part === 'question' ? 'question' : 'worked solution'}.`}
+                onpick={(p) => onPicked(s, p)}
+              />
+              <button class="btn small" onclick={() => (s.fixing = null)}>Cancel</button>
+            {:else}
+              <Snipper
+                pdf={s.analysed.pdf}
+                prompt={s.fixing.part === 'question' ? `Question ${s.pairs.length + 1}: box the question.` : `Now box its answer or worked solution.`}
+                onpick={(p) => onPicked(s, p)}
+              />
+              <div class="row-actions">
+                {#if s.fixing.part === 'solution'}
+                  <button class="btn small" onclick={() => addSnipped(s, null)}>This one has no answer</button>
+                {/if}
+                {#if s.analysed.smarterEd}
+                  <button class="btn small" onclick={() => (s.fixing = null)}>Done snipping</button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if s.pairs.length}
+          {@const shown = s.showAll || !s.analysed.smarterEd ? s.pairs : look}
+          {#if s.analysed.smarterEd}
+            <div class="row-actions">
+              <button class="btn small" onclick={() => (s.showAll = !s.showAll)}>
+                {s.showAll ? 'Show only the ones to check' : `Show all ${s.pairs.length}`}
+              </button>
+              <button class="btn small" onclick={() => (s.fixing = { index: -1, part: 'question' })}>Snip an extra question</button>
+            </div>
+          {/if}
+          {#each shown as p (p.key + p.number)}
+            {@const i = s.pairs.indexOf(p)}
+            <div class="pair" class:off={!p.include}>
+              <div class="pair-head">
+                <label class="tick">
+                  <input type="checkbox" bind:checked={p.include} />
+                  <span>{p.number}. {p.label || 'Question'}</span>
+                </label>
+                <label class="marks mono small"><input type="number" min="1" max="20" bind:value={p.marks} /> marks</label>
+                {#if p.mc}<span class="mono small muted">MC</span>{/if}
+                {#each p.problems as why (why)}<span class="flag small">{why}</span>{/each}
+              </div>
+              <div class="sides">
+                <div class="side">
+                  {#if p.question.data}<ProblemImage src={p.question.data} alt="Question {p.number}" small />{:else}<div class="missing">No question picture</div>{/if}
+                  <button class="btn small" onclick={() => (s.fixing = { index: i, part: 'question' })}>Redo question box</button>
+                </div>
+                <div class="side">
+                  {#if p.solution?.data}<ProblemImage src={p.solution.data} alt="Solution {p.number}" small />{:else}<div class="missing">No worked solution</div>{/if}
+                  <button class="btn small" onclick={() => (s.fixing = { index: i, part: 'solution' })}>Redo solution box</button>
+                </div>
+              </div>
+            </div>
+          {/each}
+          {#if s.analysed.smarterEd && !s.showAll && look.length === 0}
+            <p class="muted small">Every question was matched to its worked solution.</p>
+          {/if}
+        {/if}
+      </section>
+    {/each}
+
+    <div class="save-bar">
+      <button class="btn primary" onclick={saveAll} disabled={!ready || total === 0}>Save {plural(total, 'question')}</button>
+      <button class="btn" onclick={startOver}>Start over</button>
+    </div>
+  {:else if step === 'saving'}
+    <section class="drop panel"><span class="big">Saving...</span><span class="muted mono small">{progress}</span></section>
+  {:else if step === 'done'}
+    <section class="done">
+      {#each results as r (r.fileName)}
+        <div class="row">
+          <span class="dot" style:background="var(--accent)"></span>
+          <a class="grow" href={href('practice', 'skill', r.result.skill.id)}>{r.result.skill.name}</a>
+          <span class="mono muted small">
+            {plural(r.result.added, 'question')} added{r.result.skipped ? ` · ${r.result.skipped} already here` : ''}
+          </span>
+        </div>
+      {/each}
+      <div class="row-actions">
+        <a class="btn primary" href={href('practice')}>Go to practice</a>
+        <button class="btn" onclick={startOver}>Import more</button>
+      </div>
+    </section>
+  {/if}
+</main>
+
+<style>
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .head p {
+    margin: 0;
+    max-width: 680px;
+  }
+  .eyebrow a {
+    color: inherit;
+  }
+  h1 {
+    font-size: 36px;
+  }
+  h2 {
+    font-size: 20px;
+  }
+  .drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 56px 24px;
+    border-style: dashed;
+    border-color: var(--line-strong);
+    text-align: center;
+    cursor: pointer;
+  }
+  .drop.dragging {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  }
+  .big {
+    font-size: 22px;
+  }
+  .small {
+    font-size: 13px;
+  }
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+  }
+  .sheet-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .warn {
+    color: var(--warn);
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .topic {
+    margin: -6px 0 0;
+  }
+  .fix {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+  }
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .pair {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .pair.off .sides {
+    opacity: 0.4;
+  }
+  .pair-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+  }
+  .tick {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    min-height: 36px;
+    cursor: pointer;
+  }
+  .tick input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+  .marks {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+  }
+  .marks input {
+    width: 64px;
+    min-height: 34px;
+    padding: 4px 8px;
+  }
+  .flag {
+    color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    border-radius: 12px;
+    padding: 2px 10px;
+  }
+  .sides {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .side :global(.paper) {
+    width: 100%;
+  }
+  .missing {
+    width: 100%;
+    padding: 24px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius);
+    color: var(--muted);
+    text-align: center;
+  }
+  .save-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 12px;
+    padding: 14px 0;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+  .done {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .grow {
+    flex: 1 1 240px;
+  }
+</style>

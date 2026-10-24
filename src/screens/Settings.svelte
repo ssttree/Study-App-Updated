@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { getSettings, saveSettings, listCards, listReviewLogs } from '../lib/db';
+  import { getSettings, saveSettings, listCards, listReviewLogs, listProblems } from '../lib/db';
   import { downloadBackup, parseBackup, restoreBackup, type Backup } from '../lib/backup';
   import { plural } from '../lib/load';
   import type { Settings } from '../lib/types';
 
   let settings = $state<Settings | null>(null);
   let saved = $state(false);
-  let counts = $state({ cards: 0, reviews: 0 });
+  let counts = $state({ cards: 0, reviews: 0, problems: 0 });
   let pending = $state.raw<Backup | null>(null);
   let restoreError = $state('');
   let restoreDone = $state('');
@@ -14,8 +14,8 @@
 
   async function load() {
     settings = await getSettings();
-    const [cards, logs] = await Promise.all([listCards(), listReviewLogs()]);
-    counts = { cards: cards.length, reviews: logs.length };
+    const [cards, logs, problems] = await Promise.all([listCards(), listReviewLogs(), listProblems()]);
+    counts = { cards: cards.length, reviews: logs.length, problems: problems.length };
     const est = await navigator.storage?.estimate?.();
     const persisted = await navigator.storage?.persisted?.();
     if (est?.usage !== undefined) {
@@ -30,6 +30,7 @@
       ...$state.snapshot(settings),
       newPerDay: Math.max(0, Math.min(999, Math.round(Number(settings.newPerDay) || 0))),
       dayStartHour: Math.max(0, Math.min(23, Math.round(Number(settings.dayStartHour) || 0))),
+      problemMinutes: Number(settings.problemMinutes) || 35,
     };
     await saveSettings(clean);
     settings = clean;
@@ -79,7 +80,7 @@
 
   {#if settings}
     <section class="block">
-      <h2>Flashcards</h2>
+      <h2>Flashcards and problems</h2>
       <fieldset>
         <legend>Target retention</legend>
         <p class="muted hint">
@@ -108,6 +109,16 @@
         20 new cards a day settles at roughly 200 reviews a day, about 20 to 30 minutes. The day starts at 4am by
         default so late night study still counts for that day.
       </p>
+      <label class="field">
+        Problem block length
+        <select bind:value={settings.problemMinutes}>
+          {#each [15, 25, 35, 45, 60] as m (m)}<option value={m}>{m} minutes</option>{/each}
+        </select>
+      </label>
+      <p class="muted hint">
+        How long the evening problem block on paper is. The daily mix fills it using about 1.5 minutes per mark, the
+        same guide SmarterEd uses.
+      </p>
       <div class="row-actions">
         <button class="btn primary" onclick={save}>Save settings</button>
         {#if saved}<span class="ok mono">Saved</span>{/if}
@@ -117,7 +128,7 @@
     <section class="block">
       <h2>Backup and restore</h2>
       <p class="muted hint">
-        Your {plural(counts.cards, 'card')} and {plural(counts.reviews, 'review')} live only in this browser. A backup
+        Your {plural(counts.cards, 'card')}, {plural(counts.reviews, 'review')} and {plural(counts.problems, 'practice question')} live only in this browser. A backup
         is one file with everything in it. Keep it somewhere safe, like Google Drive. {lastBackupText(settings)}
       </p>
       <div class="row-actions">
@@ -133,7 +144,7 @@
         <div class="notice warn">
           <p>
             This backup from {pending.exportedAt ? new Date(pending.exportedAt).toLocaleString('en-AU') : 'an unknown date'}
-            has {plural(pending.decks.length, 'deck')}, {plural(pending.cards.length, 'card')} and {plural(pending.reviewLogs.length, 'review')}.
+            has {plural(pending.decks.length, 'deck')}, {plural(pending.cards.length, 'card')}, {plural(pending.reviewLogs.length, 'review')} and {plural(pending.problems.length, 'practice question')}.
             Restoring replaces everything in the app now ({plural(counts.cards, 'card')}). Download a backup first if
             you might want the current cards.
           </p>

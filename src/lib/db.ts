@@ -3,7 +3,18 @@
 // adding a case to upgrade(); existing data is kept.
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import { DEFAULT_SETTINGS, type Card, type Deck, type ReviewLog, type Settings } from './types';
+import {
+  DEFAULT_SETTINGS,
+  type Attempt,
+  type Card,
+  type Deck,
+  type Problem,
+  type ReviewLog,
+  type Settings,
+  type Skill,
+  type StoredImage,
+  type TestPlan,
+} from './types';
 
 interface StudyDB extends DBSchema {
   decks: { key: string; value: Deck };
@@ -14,10 +25,15 @@ interface StudyDB extends DBSchema {
     indexes: { cardId: string; reviewedAt: number };
   };
   meta: { key: string; value: unknown };
+  skills: { key: string; value: Skill; indexes: { subject: string } };
+  problems: { key: string; value: Problem; indexes: { skillId: string; key: string } };
+  attempts: { key: string; value: Attempt; indexes: { skillId: string; problemId: string; at: number } };
+  testPlans: { key: string; value: TestPlan };
+  images: { key: string; value: StoredImage };
 }
 
 export const DB_NAME = 'study-app';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<StudyDB>> | null = null;
 
@@ -32,6 +48,19 @@ export function db(): Promise<IDBPDatabase<StudyDB>> {
         logs.createIndex('cardId', 'cardId');
         logs.createIndex('reviewedAt', 'reviewedAt');
         database.createObjectStore('meta');
+      }
+      if (oldVersion < 2) {
+        // Problem practice.
+        database.createObjectStore('skills', { keyPath: 'id' }).createIndex('subject', 'subject');
+        const problems = database.createObjectStore('problems', { keyPath: 'id' });
+        problems.createIndex('skillId', 'skillId');
+        problems.createIndex('key', 'key');
+        const attempts = database.createObjectStore('attempts', { keyPath: 'id' });
+        attempts.createIndex('skillId', 'skillId');
+        attempts.createIndex('problemId', 'problemId');
+        attempts.createIndex('at', 'at');
+        database.createObjectStore('testPlans', { keyPath: 'id' });
+        database.createObjectStore('images', { keyPath: 'id' });
       }
     },
     // A newer version of the app opened in another tab: step aside so it can upgrade.
@@ -153,23 +182,186 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await (await db()).put('meta', settings, 'settings');
 }
 
-/** Replaces everything with the given data (used by backup restore). */
-export async function replaceAll(data: {
+/** Everything a backup holds. Practice data is optional so old backups still restore. */
+export interface AllData {
   decks: Deck[];
   cards: Card[];
   reviewLogs: ReviewLog[];
   settings: Settings;
-}): Promise<void> {
+  skills?: Skill[];
+  problems?: Problem[];
+  attempts?: Attempt[];
+  testPlans?: TestPlan[];
+  images?: StoredImage[];
+}
+
+const ALL_STORES = ['decks', 'cards', 'reviewLogs', 'meta', 'skills', 'problems', 'attempts', 'testPlans', 'images'] as const;
+
+/** Replaces everything with the given data (used by backup restore). */
+export async function replaceAll(data: AllData): Promise<void> {
   const database = await db();
-  const tx = database.transaction(['decks', 'cards', 'reviewLogs', 'meta'], 'readwrite');
-  await Promise.all([
-    tx.objectStore('decks').clear(),
-    tx.objectStore('cards').clear(),
-    tx.objectStore('reviewLogs').clear(),
-  ]);
+  const tx = database.transaction(ALL_STORES, 'readwrite');
+  await Promise.all(ALL_STORES.filter((s) => s !== 'meta').map((s) => tx.objectStore(s).clear()));
   for (const deck of data.decks) await tx.objectStore('decks').put(deck);
   for (const card of data.cards) await tx.objectStore('cards').put(card);
   for (const log of data.reviewLogs) await tx.objectStore('reviewLogs').put(log);
+  for (const skill of data.skills ?? []) await tx.objectStore('skills').put(skill);
+  for (const problem of data.problems ?? []) await tx.objectStore('problems').put(problem);
+  for (const attempt of data.attempts ?? []) await tx.objectStore('attempts').put(attempt);
+  for (const plan of data.testPlans ?? []) await tx.objectStore('testPlans').put(plan);
+  for (const image of data.images ?? []) await tx.objectStore('images').put(image);
   await tx.objectStore('meta').put(data.settings, 'settings');
   await tx.done;
+}
+
+// Problem practice
+
+export async function listSkills(): Promise<Skill[]> {
+  const skills = await (await db()).getAll('skills');
+  return skills.sort((a, b) => a.subject.localeCompare(b.subject) || a.topic.localeCompare(b.topic) || a.name.localeCompare(b.name));
+}
+
+export async function getSkill(id: string): Promise<Skill | undefined> {
+  return (await db()).get('skills', id);
+}
+
+export async function saveSkill(skill: Skill): Promise<void> {
+  await (await db()).put('skills', { ...skill, updated: Date.now() });
+}
+
+/** Deletes a skill with its questions, pictures and attempts. Sub-skills go too. */
+export async function deleteSkill(id: string): Promise<void> {
+  const database = await db();
+  const children = (await database.getAll('skills')).filter((s) => s.parentId === id).map((s) => s.id);
+  const tx = database.transaction(['skills', 'problems', 'attempts', 'images', 'testPlans'], 'readwrite');
+  for (const skillId of [id, ...children]) {
+    const problems = await tx.objectStore('problems').index('skillId').getAll(skillId);
+    for (const p of problems) await deleteProblemInTx(storesOf(tx), p);
+    for (const key of await tx.objectStore('attempts').index('skillId').getAllKeys(skillId)) {
+      await tx.objectStore('attempts').delete(key);
+    }
+    await tx.objectStore('skills').delete(skillId);
+  }
+  for (const plan of await tx.objectStore('testPlans').getAll()) {
+    if (plan.skillIds.some((s) => s === id || children.includes(s))) {
+      await tx.objectStore('testPlans').put({ ...plan, skillIds: plan.skillIds.filter((s) => s !== id && !children.includes(s)) });
+    }
+  }
+  await tx.done;
+}
+
+export async function listProblems(skillId?: string): Promise<Problem[]> {
+  const database = await db();
+  const problems = skillId ? await database.getAllFromIndex('problems', 'skillId', skillId) : await database.getAll('problems');
+  return problems.sort((a, b) => a.order - b.order);
+}
+
+export async function getProblem(id: string): Promise<Problem | undefined> {
+  return (await db()).get('problems', id);
+}
+
+export async function saveProblem(problem: Problem): Promise<void> {
+  await (await db()).put('problems', problem);
+}
+
+/** Moves questions to another skill (used to split out a sub-skill). Their attempts move too. */
+export async function moveProblems(problemIds: string[], skillId: string): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['problems', 'attempts'], 'readwrite');
+  for (const id of problemIds) {
+    const p = await tx.objectStore('problems').get(id);
+    if (!p) continue;
+    await tx.objectStore('problems').put({ ...p, skillId });
+    for (const a of await tx.objectStore('attempts').index('problemId').getAll(id)) {
+      await tx.objectStore('attempts').put({ ...a, skillId });
+    }
+  }
+  await tx.done;
+}
+
+export async function deleteProblem(id: string): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['problems', 'attempts', 'images'], 'readwrite');
+  const p = await tx.objectStore('problems').get(id);
+  if (p) await deleteProblemInTx(storesOf(tx), p);
+  await tx.done;
+}
+
+type ProblemStores = {
+  problems: { delete(key: string): Promise<void> };
+  attempts: { index(name: 'problemId'): { getAllKeys(query: string): Promise<string[]> }; delete(key: string): Promise<void> };
+  images: { delete(key: string): Promise<void> };
+};
+
+function storesOf(tx: { objectStore(name: 'problems' | 'attempts' | 'images'): unknown }): ProblemStores {
+  return {
+    problems: tx.objectStore('problems') as ProblemStores['problems'],
+    attempts: tx.objectStore('attempts') as ProblemStores['attempts'],
+    images: tx.objectStore('images') as ProblemStores['images'],
+  };
+}
+
+async function deleteProblemInTx(stores: ProblemStores, p: Problem): Promise<void> {
+  for (const key of await stores.attempts.index('problemId').getAllKeys(p.id)) await stores.attempts.delete(key);
+  await stores.images.delete(p.questionImage);
+  if (p.solutionImage) await stores.images.delete(p.solutionImage);
+  await stores.problems.delete(p.id);
+}
+
+/** Keys of problems already saved, so an import can skip repeats. */
+export async function problemKeys(): Promise<Set<string>> {
+  return new Set((await (await db()).getAll('problems')).map((p) => p.key));
+}
+
+/** Adds skills, problems and their pictures in one go, so an import either all lands or none of it does. */
+export async function addPractice(skills: Skill[], problems: Problem[], images: StoredImage[]): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['skills', 'problems', 'images'], 'readwrite');
+  for (const skill of skills) await tx.objectStore('skills').put(skill);
+  for (const image of images) await tx.objectStore('images').put(image);
+  for (const problem of problems) await tx.objectStore('problems').put(problem);
+  await tx.done;
+}
+
+export async function getImage(id: string): Promise<StoredImage | undefined> {
+  return (await db()).get('images', id);
+}
+
+export async function saveImage(image: StoredImage): Promise<void> {
+  await (await db()).put('images', image);
+}
+
+export async function listImages(): Promise<StoredImage[]> {
+  return (await db()).getAll('images');
+}
+
+/** Saves the skill's new schedule and the attempt together. */
+export async function recordAttempt(skill: Skill, attempt: Attempt, problem?: Problem): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['skills', 'attempts', 'problems'], 'readwrite');
+  await tx.objectStore('skills').put({ ...skill, updated: Date.now() });
+  await tx.objectStore('attempts').add(attempt);
+  if (problem) await tx.objectStore('problems').put(problem);
+  await tx.done;
+}
+
+export async function listAttempts(since = 0): Promise<Attempt[]> {
+  return (await db()).getAllFromIndex('attempts', 'at', IDBKeyRange.lowerBound(since));
+}
+
+export async function listTestPlans(): Promise<TestPlan[]> {
+  const plans = await (await db()).getAll('testPlans');
+  return plans.sort((a, b) => a.date - b.date);
+}
+
+export async function getTestPlan(id: string): Promise<TestPlan | undefined> {
+  return (await db()).get('testPlans', id);
+}
+
+export async function saveTestPlan(plan: TestPlan): Promise<void> {
+  await (await db()).put('testPlans', plan);
+}
+
+export async function deleteTestPlan(id: string): Promise<void> {
+  await (await db()).delete('testPlans', id);
 }

@@ -38,9 +38,34 @@ works with no internet once it has been opened once.
   its own card with the gap shown as **[...]**. Sound is left out for now.
   Importing the same deck again skips cards already here.
 - **Offline**: the app saves its own files, so it opens on the bus with no signal.
-  Your cards are stored in the browser (IndexedDB).
+  Your cards and practice questions are stored in the browser (IndexedDB), and backups include them.
 
-Practice, Planner and Progress are in the menu already and say what is coming.
+### Problem practice (SmarterEd and ATAR Notes)
+
+- **Skills, not single questions.** A skill is one subtopic, usually one SmarterEd worksheet. FSRS schedules
+  each skill, and each time it is due you get a question from it you have not done (or not for 60 days), so you
+  practise the method instead of remembering one answer.
+- **SmarterEd import** (Practice, SmarterEd PDFs): drop in one or more worksheet PDFs. The app reads the
+  question headers (like `Functions, EXT1 F2 2016 HSC 2 MC`), cuts out every question and its worked solution as
+  pictures, reads the marks, and names the skill after the worksheet title. Pairs that look right are ticked
+  straight away; only odd ones are shown to check. Any crop can be redone by dragging a box on the page.
+- **Other PDFs** (like class notes with questions in them): the app shows the pages and you drag a box around
+  each question, then its answer.
+- **ATAR Notes topic tests**: pick the skill once, paste question screenshots (Windows + Shift + S, then
+  Ctrl + V), then paste the worked solutions in the same order. They pair up by order.
+- **Daily mix**: the app suggests a subject (due skills, weak skills, days since you last did it, and tests
+  coming up), then fills your problem block (35 min by default, 1.5 min per mark) with questions from due skills,
+  new skills and a couple of weak ones, shuffled so you have to work out the method. Skills you mixed up are put
+  side by side.
+- **Test plans**: pick a test date and the skills it covers. Those skills get first claim on that subject's
+  problems, and "Practise for it" goes round them until each has come up at least twice.
+- **Marking on paper**: work the question on paper, reveal the worked solution, say if you picked the right
+  method (and which skill you mixed it up with), then rate it Again, Hard, Good or Easy. Multiple choice letters
+  are checked once the app knows the right one.
+- **Sub-skills**: tick some questions on a broad worksheet (like Graphing) and make them a sub-skill with its own
+  schedule.
+
+Planner and Progress are in the menu already and say what is coming.
 
 ## Running it on your laptop
 

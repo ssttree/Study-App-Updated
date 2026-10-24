@@ -1,13 +1,9 @@
 <script lang="ts">
   import { href } from '../lib/router.svelte';
 
-  let { feature }: { feature: 'practice' | 'planner' | 'progress' } = $props();
+  let { feature }: { feature: 'planner' | 'progress' } = $props();
 
   const info = {
-    practice: {
-      title: 'Problem practice',
-      text: 'Mixed SmarterEd and ATAR Notes questions on paper, with skills scheduled by FSRS. Coming after flashcards are in daily use.',
-    },
     planner: {
       title: 'Planner and homework',
       text: 'Homework list, automatic study plan, exam prep and Google Calendar. Coming after problem practice.',
