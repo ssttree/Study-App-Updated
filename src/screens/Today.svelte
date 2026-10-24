@@ -8,19 +8,45 @@
   import { href } from '../lib/router.svelte';
   import { loadPractice, shortSubject } from '../lib/practice/load';
   import { recommendSubjects } from '../lib/practice/mix';
+  import { loadPlanner, type PlannerData } from '../lib/planner/load';
+  import { EXTRA_WINDOW } from '../lib/planner/build';
+  import { itemColour, itemLink, itemText } from '../lib/planner/labels';
+  import { addDays, minutesText } from '../lib/planner/dates';
 
   let data = $state.raw<Collection | null>(null);
   let backingUp = $state(false);
 
   let problems = $state.raw<{ subject: string; reason: string; minutes: number } | null>(null);
+  let planner = $state.raw<PlannerData | null>(null);
 
   async function load() {
     data = await loadCollection();
     const p = await loadPractice();
     const top = recommendSubjects(p, Date.now(), p.dayEnd)[0];
     problems = top ? { subject: top.subject, reason: top.reason, minutes: p.settings.problemMinutes } : null;
+    planner = await loadPlanner();
   }
   load();
+
+  const plan = $derived.by(() => {
+    if (!planner) return null;
+    const day = planner.days[0];
+    const tasks = new Map(planner.tasks.map((t) => [t.id, t]));
+    const assessments = new Map(planner.assessments.map((a) => [a.id, a]));
+    const windows = new Map(day.windows.map((w) => [w.id, w.name]));
+    const items = day.plan.items
+      .filter((it) => it.status !== 'skipped')
+      .map((it) => ({
+        item: it,
+        text: itemText(it, tasks, assessments, planner!.today),
+        link: itemLink(it, tasks),
+        where: it.windowId === EXTRA_WINDOW ? 'Extra' : (windows.get(it.windowId) ?? ''),
+        done: it.status === 'done' || (it.kind === 'flashcards' && planner!.cardsLeft === 0 && planner!.logsToday.length > 0),
+      }));
+    const due = planner.tasks.filter((t) => t.status === 'open' && t.required && t.due <= day.date);
+    const tomorrow = planner.tasks.filter((t) => t.status === 'open' && t.required && t.due === addDays(day.date, 1));
+    return { items, warnings: day.warnings, due, tomorrow };
+  });
 
   const view = $derived.by(() => {
     if (!data) return null;
@@ -80,7 +106,7 @@
         <div class="eyebrow accent">Next · about {estimateMinutes(due, fresh)} min</div>
         <h1>Flashcards</h1>
         <p class="lead muted">
-          {#if due > 0}{plural(due, 'review')}{/if}{#if due > 0 && fresh > 0}&nbsp;and {/if}{#if fresh > 0}{plural(fresh, 'new card')}{/if}
+          {#if due > 0}{plural(due, 'review')}{/if}{#if due > 0 && fresh > 0}&nbsp;and&nbsp;{/if}{#if fresh > 0}{plural(fresh, 'new card')}{/if}
           ready. Answer each one in your head (or type it) before you flip it.
         </p>
         <div class="actions">
@@ -104,7 +130,33 @@
       </section>
     {/if}
 
-    {#if problems}
+    {#if plan && plan.items.length}
+      <section>
+        <div class="section-head">
+          <h2>Today's plan</h2>
+          <a class="mono small" href={href('planner')}>Open planner</a>
+        </div>
+        {#each plan.warnings as w (w)}<div class="notice warn small">{w}</div>{/each}
+        {#each plan.items as p (p.item.id)}
+          <a class="row subject" class:done={p.done} href={p.done ? href('planner') : p.link}>
+            <span class="dot" style:background={p.done ? 'var(--dot)' : itemColour(p.item)}></span>
+            <span class="name">{p.text.title}{p.item.optional ? ' (optional)' : ''}</span>
+            <span class="mono muted small">{p.where} · {minutesText(p.item.minutes)}</span>
+          </a>
+        {/each}
+        {#if plan.due.length || plan.tomorrow.length}
+          <a class="row subject" href={href('planner', 'homework')}>
+            <span class="dot" style:background="var(--good)"></span>
+            <span class="name">Homework</span>
+            <span class="mono muted small">
+              {[plan.due.length ? `${plan.due.length} due today or late` : '', plan.tomorrow.length ? `${plan.tomorrow.length} due tomorrow` : '']
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </a>
+        {/if}
+      </section>
+    {:else if problems}
       <a class="row problems" href={href('practice')}>
         <span class="dot" style:background="var(--accent)"></span>
         <span class="name"><strong>Problem block</strong> · {shortSubject(problems.subject)} on paper, about {problems.minutes} min</span>
@@ -221,6 +273,10 @@
   }
   .problems:hover strong {
     color: var(--accent);
+  }
+  .subject.done .name {
+    color: var(--muted);
+    text-decoration: line-through;
   }
   .subject:hover .name {
     color: var(--accent);

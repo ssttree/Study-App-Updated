@@ -38,7 +38,7 @@ works with no internet once it has been opened once.
   its own card with the gap shown as **[...]**. Sound is left out for now.
   Importing the same deck again skips cards already here.
 - **Offline**: the app saves its own files, so it opens on the bus with no signal.
-  Your cards and practice questions are stored in the browser (IndexedDB), and backups include them.
+  Your cards, practice questions, homework and plans are stored in the browser (IndexedDB), and backups include them.
 
 ### Problem practice (SmarterEd and ATAR Notes)
 
@@ -67,7 +67,33 @@ works with no internet once it has been opened once.
 - **Moving questions**: tick questions on any skill and move them to another skill, for when a worksheet has a
   question that really belongs to a different topic. Your past attempts on them move too.
 
-Planner and Progress are in the menu already and say what is coming.
+### Planner and homework
+
+- **Homework list** (Planner, Homework): type one short line and it works out the rest.
+  `chem finish q5-10 fri 20m` is a Chemistry task due Friday that takes 20 minutes. Subjects: `chem`, `adv`,
+  `ext1`, `ext2`, `eng` (English), `engin` (Engineering), `bus`. Days: `today`, `tmr`, `fri`, `next fri`, `3/11`.
+  Time: `20m`, `1h`, `1h30`. Add `set` for a SmarterEd set and `opt` if it's optional. Anything it can't find
+  defaults to due tomorrow, 20 minutes.
+- **SmarterEd sets as homework**: "Add the PDF" runs the normal practice import and links the set to its skill.
+  Doing every question in a problem session ticks the homework off. Optional sets just join the skill pool.
+- **Study windows** (Planner, Study windows): the times you *can* study each week. Bus windows get flashcards,
+  desk windows get homework then problems, flexible windows (like Tuesday night) only get optional things.
+  Off season and soccer season have their own windows; on training nights in season, desk windows from 4pm
+  drop out. Any single day can be changed by hand.
+- **Daily plan**: built every time you open the planner. Flashcards go on the bus (never under 10 minutes),
+  required homework goes to the desk due soonest first, and what is left goes to problems (test prep when a
+  test is close). If homework due tomorrow won't fit, it says so. Tick, skip, pin, send to tomorrow, move to
+  any window (or drag in the week view), swap the problem subject, or press "I've got 20 more minutes".
+  Anything you touched stays put when the plan rebuilds.
+- **Carry-overs**: homework planned for a day and not finished rolls on with a "carried over" tag. After two,
+  the planner asks whether to pick a new date, shrink it or drop it.
+- **Exams and assessments** (Planner, Exams): class tests ramp up 21, 7 and 2 days out; trials and the HSC
+  42, 14 and 3. Build: the subject gets problems more often. Focus: test prep only from in-scope skills, and
+  cards in the decks you pick aim for 95% recall. Final: timed sets. Close exams share the days by date and
+  weighting. Assignments get milestones (each one a homework task) and warn when one slips. Afterwards, enter
+  your mark and tick skills that went badly; they come straight back.
+
+Progress is in the menu already and says what is coming.
 
 ## Running it on your laptop
 
@@ -113,6 +139,9 @@ src/
     backup.ts        backup file export, checks and restore
     cards.ts         card helpers (tags, typing setting)
     answers.ts       checking typed answers and showing plain chemistry nicely
+    planner/         homework and the daily plan: quickadd.ts reads a quick add line,
+                     availability.ts the study windows and seasons, build.ts makes
+                     the plan, assessments.ts the exam ramps, load.ts loads it all
     anki/            Anki .apkg import: read.ts opens the file (zip + SQLite),
                      html.ts turns Anki HTML and templates into Markdown,
                      convert.ts builds the cards, import.ts saves them

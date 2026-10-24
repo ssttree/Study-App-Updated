@@ -6,7 +6,9 @@
   import { filterFromParts, filterLabel as labelFor } from '../lib/filters';
   import { loadCollection, plural, estimateMinutes } from '../lib/load';
   import { customFromParts, logsNeededSince, selectCustom } from '../lib/custom';
-  import { logsSince } from '../lib/db';
+  import { listTestPlans, logsSince } from '../lib/db';
+  import { examDeckIds, EXAM_RETENTION } from '../lib/planner/assessments';
+  import { todayKey } from '../lib/planner/dates';
   import { buildQueue, pickNext, summarise, LEARN_AHEAD_MS, type QueueItem } from '../lib/queue';
   import { formatInterval, makeScheduler, previewIntervals, rate, RATINGS, stateFor, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
@@ -24,6 +26,10 @@
   let decks = $state.raw<Deck[]>([]);
   let settings = $state<Settings | null>(null);
   let scheduler: FSRS | null = null;
+  /** Cards in decks an assessment is close for aim for 95% recall. */
+  let examScheduler: FSRS | null = null;
+  let examDecks = new Set<string>();
+  const schedulerFor = (deckId: string) => (examDecks.has(deckId) && examScheduler ? examScheduler : scheduler);
   let queue = $state.raw<QueueItem[]>([]);
   let current = $state.raw<QueueItem | null>(null);
   let revealed = $state(false);
@@ -49,6 +55,8 @@
     decks = data.decks;
     settings = data.settings;
     scheduler = makeScheduler(data.settings);
+    examScheduler = makeScheduler({ retention: Math.max(EXAM_RETENTION, data.settings.retention) });
+    examDecks = examDeckIds(await listTestPlans(), todayKey(Date.now(), data.settings.dayStartHour));
     if (customParts) {
       const options = customFromParts(customParts);
       const now = Date.now();
@@ -89,7 +97,7 @@
   const question = $derived(current ? (current.direction === 'forward' ? current.card.front : current.card.back) : '');
   const answer = $derived(current ? (current.direction === 'forward' ? current.card.back : current.card.front) : '');
   const intervals = $derived(
-    current && scheduler && settings && !practice ? previewIntervals(scheduler, stateFor(current.card, current.direction)) : null,
+    current && scheduler && settings && !practice ? previewIntervals(schedulerFor(current.card.deckId)!, stateFor(current.card, current.direction)) : null,
   );
   const check = $derived(
     revealed && typingActive && current ? checkAnswer(typed, answerKey(current.card, current.direction)) : null,
@@ -125,7 +133,7 @@
     saving = true;
     const item = current;
     const now = Date.now();
-    const result = rate(scheduler, item.card, item.direction, rating, {
+    const result = rate(schedulerFor(item.card.deckId)!, item.card, item.direction, rating, {
       now,
       durationMs: Math.min(now - shownAt, 5 * 60_000),
       typedAnswer: typingActive ? typed : undefined,

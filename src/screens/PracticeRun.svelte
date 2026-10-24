@@ -53,8 +53,11 @@
     const d = await loadPractice();
     data = d;
     scheduler = makeSkillScheduler(d.settings);
-    const minutes = d.settings.problemMinutes;
-    const [kind, ...rest] = parts;
+    // The planner can ask for a set length, as a last part like "45m".
+    const last = parts[parts.length - 1] ?? '';
+    const asked = /^\d+m$/.test(last) ? Number(last.slice(0, -1)) : 0;
+    const minutes = asked || d.settings.problemMinutes;
+    const [kind, ...rest] = asked ? parts.slice(0, -1) : parts;
     if (kind === 'plan') {
       const plan = d.plans.find((p) => p.id === rest[0]);
       if (plan) {

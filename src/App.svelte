@@ -16,17 +16,24 @@
   import AtarImport from './screens/AtarImport.svelte';
   import PlanEditor from './screens/PlanEditor.svelte';
   import PracticeRun from './screens/PracticeRun.svelte';
+  import Planner from './screens/Planner.svelte';
+  import Homework from './screens/Homework.svelte';
+  import TaskEditor from './screens/TaskEditor.svelte';
+  import Windows from './screens/Windows.svelte';
+  import Exams from './screens/Exams.svelte';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
-    { label: 'Planner', link: href('planner'), match: ['later:planner'] },
+    { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'plan:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
   ];
 
   const route = $derived(router.route);
-  const key = $derived(route.name === 'later' ? `later:${route.feature}` : route.name);
+  const key = $derived(
+    route.name === 'later' ? `later:${route.feature}` : route.name === 'plan' && route.from ? `plan:${route.from}` : route.name,
+  );
 
   let now = $state(new Date());
   $effect(() => {
@@ -84,11 +91,21 @@
     {:else if route.name === 'skill'}
       <SkillView id={route.id} />
     {:else if route.name === 'pdfImport'}
-      <PdfImport />
+      <PdfImport taskId={route.taskId} />
     {:else if route.name === 'atarImport'}
       <AtarImport />
     {:else if route.name === 'plan'}
-      <PlanEditor id={route.id} />
+      <PlanEditor id={route.id} from={route.from} />
+    {:else if route.name === 'planner'}
+      <Planner />
+    {:else if route.name === 'homework'}
+      <Homework />
+    {:else if route.name === 'task'}
+      <TaskEditor id={route.id} assessmentId={route.assessmentId} />
+    {:else if route.name === 'windows'}
+      <Windows />
+    {:else if route.name === 'exams'}
+      <Exams />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'later'}
