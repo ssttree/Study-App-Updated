@@ -3,11 +3,13 @@
 // so this file is only loaded once a PDF is picked.
 
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import { findBars, trimBox, type Box, type Pixels } from './crop';
 import type { PageText, Region } from './smartered';
 
-GlobalWorkerOptions.workerSrc = workerUrl;
+// Vite bundles the worker as its own .js file. A plain .mjs link broke on the
+// live site, and browsers that cached that bad copy never asked for it again.
+GlobalWorkerOptions.workerPort = new PdfWorker();
 
 /** Pages are drawn at twice their PDF size, so the crops stay sharp. */
 export const SCALE = 2;

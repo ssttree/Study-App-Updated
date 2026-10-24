@@ -28,6 +28,8 @@ export default defineConfig({
       },
     }),
   ],
+  // The PDF.js worker is an ES module.
+  worker: { format: 'es' },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
