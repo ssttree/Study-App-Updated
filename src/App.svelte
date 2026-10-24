@@ -9,11 +9,18 @@
   import Later from './screens/Later.svelte';
   import CustomStudy from './screens/CustomStudy.svelte';
   import Import from './screens/Import.svelte';
+  import Practice from './screens/Practice.svelte';
+  import Skills from './screens/Skills.svelte';
+  import SkillView from './screens/SkillView.svelte';
+  import PdfImport from './screens/PdfImport.svelte';
+  import AtarImport from './screens/AtarImport.svelte';
+  import PlanEditor from './screens/PlanEditor.svelte';
+  import PracticeRun from './screens/PracticeRun.svelte';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
-    { label: 'Practice', link: href('practice'), match: ['later:practice'] },
+    { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
     { label: 'Planner', link: href('planner'), match: ['later:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
   ];
@@ -38,6 +45,9 @@
   <Review filterParts={route.filter} />
 {:else if route.name === 'customRun'}
   <Review customParts={route.parts} />
+{:else if route.name === 'practiceRun'}
+  <!-- Problem practice is a focus screen too. -->
+  {#key route}<PracticeRun parts={route.parts} />{/key}
 {:else}
   <header class="top">
     <a class="brand" href={href('today')} aria-label="Study App, today"><span aria-hidden="true">●</span></a>
@@ -67,6 +77,18 @@
       <CustomStudy filterParts={route.filter} />
     {:else if route.name === 'import'}
       <Import />
+    {:else if route.name === 'practice' || route.name === 'plans'}
+      <Practice />
+    {:else if route.name === 'skills'}
+      <Skills subject={route.subject} />
+    {:else if route.name === 'skill'}
+      <SkillView id={route.id} />
+    {:else if route.name === 'pdfImport'}
+      <PdfImport />
+    {:else if route.name === 'atarImport'}
+      <AtarImport />
+    {:else if route.name === 'plan'}
+      <PlanEditor id={route.id} />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'later'}

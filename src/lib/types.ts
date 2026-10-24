@@ -92,6 +92,8 @@ export interface Settings {
   newPerDay: number;
   /** Hour the study day rolls over, so a late night review counts for that day. */
   dayStartHour: number;
+  /** Length of the evening problem block, in minutes. */
+  problemMinutes: number;
   lastBackupAt?: number;
 }
 
@@ -99,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   retention: 0.9,
   newPerDay: 20,
   dayStartHour: 4,
+  problemMinutes: 35,
 };
 
 export const SUBJECTS = [
@@ -110,3 +113,91 @@ export const SUBJECTS = [
   'Business Studies',
   'Engineering Studies',
 ] as const;
+
+// Problem practice. FSRS schedules skills (one subtopic, usually one SmarterEd
+// worksheet), not single questions, so you practise the method rather than
+// remembering the answer to one question.
+
+export interface Skill {
+  id: string;
+  subject: string;
+  name: string;
+  /** Wider topic it belongs to, like "F2 Polynomials" or "Module 3: Reactive Chemistry". */
+  topic: string;
+  /** Short syllabus code from the worksheet, like "F2" or "M3". */
+  code: string;
+  /** Set for sub-skills split out of a broad worksheet. */
+  parentId?: string;
+  /** Optional syllabus dot point, like "ME-F2.1". */
+  dotPoint?: string;
+  /** Only skills taught in class (switched on) join the schedule. */
+  on: boolean;
+  fsrs: FsrsState;
+  created: number;
+  updated: number;
+}
+
+export type ProblemSource = 'smartered' | 'atarnotes' | 'snip';
+
+export interface Problem {
+  id: string;
+  skillId: string;
+  source: ProblemSource;
+  /** Where it came from, like "2016 HSC Q2" or "NESA 2019 Sample Exam Q2". */
+  label: string;
+  /** The worksheet or topic test it was imported from. */
+  from: string;
+  /** Used to skip questions already imported, e.g. the SmarterEd header. */
+  key: string;
+  marks: number;
+  mc: boolean;
+  /** Correct letter for multiple choice, once known. */
+  answerLetter?: string;
+  /** Ids in the images store, kept apart so lists of problems stay light. */
+  questionImage: string;
+  solutionImage?: string;
+  /** Position in the worksheet, to keep the original order. */
+  order: number;
+  created: number;
+}
+
+export type MethodChoice = 'yes' | 'partly' | 'no';
+export type MistakeTag = 'slip' | 'content' | 'misread' | 'time';
+
+/** One go at one problem on paper. Never edited, used for weak spots later. */
+export interface Attempt {
+  id: string;
+  problemId: string;
+  skillId: string;
+  at: number;
+  /** 1 Again, 2 Hard, 3 Good, 4 Easy */
+  rating: 1 | 2 | 3 | 4;
+  method: MethodChoice;
+  confusedWith?: string;
+  mistake?: MistakeTag;
+  /** Multiple choice letter picked, if any. */
+  picked?: string;
+  seconds: number;
+  /** The skill's state before (0 means it was new). */
+  stateBefore: 0 | 1 | 2 | 3;
+  /** Test prep plan this attempt was part of, if any. */
+  planId?: string;
+}
+
+export interface TestPlan {
+  id: string;
+  name: string;
+  subject: string;
+  /** Test day as a timestamp (local midnight). */
+  date: number;
+  skillIds: string[];
+  created: number;
+}
+
+/** A cropped question or solution picture, as a data URL. */
+export interface StoredImage {
+  id: string;
+  data: string;
+  width: number;
+  height: number;
+}

@@ -13,7 +13,15 @@ export type Route =
   | { name: 'newCard'; deckId: string }
   | { name: 'import' }
   | { name: 'settings' }
-  | { name: 'later'; feature: 'practice' | 'planner' | 'progress' }
+  | { name: 'practice' }
+  | { name: 'skills'; subject?: string }
+  | { name: 'skill'; id: string }
+  | { name: 'pdfImport' }
+  | { name: 'atarImport' }
+  | { name: 'plans' }
+  | { name: 'plan'; id: string }
+  | { name: 'practiceRun'; parts: string[] }
+  | { name: 'later'; feature: 'planner' | 'progress' }
   | { name: 'notFound' };
 
 export function parseHash(hash: string): Route {
@@ -41,9 +49,34 @@ export function parseHash(hash: string): Route {
     case 'settings':
       return { name: 'settings' };
     case 'practice':
+      return practiceRoute(rest);
     case 'planner':
     case 'progress':
       return { name: 'later', feature: head };
+    default:
+      return { name: 'notFound' };
+  }
+}
+
+function practiceRoute(rest: string[]): Route {
+  const [sub, ...more] = rest;
+  switch (sub) {
+    case undefined:
+      return { name: 'practice' };
+    case 'skills':
+      return { name: 'skills', subject: more[0] };
+    case 'skill':
+      return more[0] ? { name: 'skill', id: more[0] } : { name: 'skills' };
+    case 'import':
+      return { name: 'pdfImport' };
+    case 'atar':
+      return { name: 'atarImport' };
+    case 'plans':
+      return { name: 'plans' };
+    case 'plan':
+      return { name: 'plan', id: more[0] ?? 'new' };
+    case 'run':
+      return { name: 'practiceRun', parts: more };
     default:
       return { name: 'notFound' };
   }
