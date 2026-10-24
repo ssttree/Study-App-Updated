@@ -6,6 +6,7 @@ import { fsrs, type FSRS, type Grade } from 'ts-fsrs';
 import { newId } from '../db';
 import { emptyState, fromFsrs, toFsrs, type RatingValue } from '../scheduler';
 import type { Attempt, Problem, Settings, Skill, TestPlan } from '../types';
+import { rampOf } from '../planner/assessments';
 
 const DAY = 86_400_000;
 /** A question can come back once this long has passed since you last did it. */
@@ -289,9 +290,15 @@ export function retrievability(skill: Skill, now: number): number {
   return Math.pow(1 + (19 / 81) * (days / Math.max(skill.fsrs.stability, 0.01)), -0.5);
 }
 
-/** Test plans whose test has not happened yet. */
+/**
+ * Tests and exams that are coming up and inside their prep ramp (21 days for
+ * a class test, 42 for trials and the HSC). Assignments have no questions.
+ */
 export function activePlans(plans: TestPlan[], now: number): TestPlan[] {
-  return plans.filter((p) => p.date + DAY > now);
+  return plans.filter((p) => {
+    const ramp = rampOf(p);
+    return ramp && p.date + DAY > now && p.date - ramp.build * DAY <= now;
+  });
 }
 
 /**
@@ -340,9 +347,10 @@ export function recommendSubjects(data: PracticeData, now: number, dayEnd: numbe
         .sort((a, b) => a.date - b.date)[0];
       const testInDays = plan ? Math.max(0, Math.ceil((plan.date - now) / DAY)) : null;
       let score = due.length * 3 + weakness * 4 + Math.min(fresh, 4) * 2 + Math.min(daysSince ?? 7, 7);
-      if (testInDays !== null && testInDays <= 21) score += (22 - testInDays) * 1.5;
+      const rampDays = plan ? (rampOf(plan)?.build ?? 21) : 21;
+      if (testInDays !== null) score += (rampDays + 1 - testInDays) * 1.5 * (21 / rampDays);
       const reasons: string[] = [];
-      if (testInDays !== null && testInDays <= 21) reasons.push(testInDays === 0 ? 'test today' : `test in ${testInDays} day${testInDays === 1 ? '' : 's'}`);
+      if (testInDays !== null) reasons.push(testInDays === 0 ? 'test today' : `test in ${testInDays} day${testInDays === 1 ? '' : 's'}`);
       if (due.length) reasons.push(`${due.length} skill${due.length === 1 ? '' : 's'} due`);
       if (fresh) reasons.push(`${fresh} new skill${fresh === 1 ? '' : 's'}`);
       if (daysSince === null) reasons.push('not practised yet');

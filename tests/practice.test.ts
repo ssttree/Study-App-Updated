@@ -15,7 +15,7 @@ import {
   type PracticeData,
 } from '../src/lib/practice/mix';
 import { pairByOrder, saveProblems } from '../src/lib/practice/save';
-import { createBackup, parseBackup, restoreBackup } from '../src/lib/backup';
+import { BACKUP_VERSION, createBackup, parseBackup, restoreBackup } from '../src/lib/backup';
 import {
   DB_NAME,
   deleteSkill,
@@ -276,7 +276,7 @@ describe('saving practice', () => {
   it('backs up and restores practice data with its pictures', async () => {
     await saveProblems({ kind: 'new', subject: 'Chemistry', name: 'Moles' }, drafts, 'atarnotes', 'Test 1');
     const backup = JSON.parse(JSON.stringify(await createBackup()));
-    expect(backup.version).toBe(2);
+    expect(backup.version).toBe(BACKUP_VERSION);
     await deleteSkill((await listSkills())[0].id);
     await restoreBackup(parseBackup(backup));
     const problemsBack = await listProblems();

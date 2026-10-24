@@ -16,12 +16,17 @@ export type Route =
   | { name: 'practice' }
   | { name: 'skills'; subject?: string }
   | { name: 'skill'; id: string }
-  | { name: 'pdfImport' }
+  | { name: 'pdfImport'; taskId?: string }
   | { name: 'atarImport' }
   | { name: 'plans' }
-  | { name: 'plan'; id: string }
+  | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
-  | { name: 'later'; feature: 'planner' | 'progress' }
+  | { name: 'planner' }
+  | { name: 'homework' }
+  | { name: 'task'; id: string; assessmentId?: string }
+  | { name: 'windows' }
+  | { name: 'exams' }
+  | { name: 'later'; feature: 'progress' }
   | { name: 'notFound' };
 
 export function parseHash(hash: string): Route {
@@ -51,6 +56,7 @@ export function parseHash(hash: string): Route {
     case 'practice':
       return practiceRoute(rest);
     case 'planner':
+      return plannerRoute(rest);
     case 'progress':
       return { name: 'later', feature: head };
     default:
@@ -68,7 +74,7 @@ function practiceRoute(rest: string[]): Route {
     case 'skill':
       return more[0] ? { name: 'skill', id: more[0] } : { name: 'skills' };
     case 'import':
-      return { name: 'pdfImport' };
+      return more[0] === 'task' && more[1] ? { name: 'pdfImport', taskId: more[1] } : { name: 'pdfImport' };
     case 'atar':
       return { name: 'atarImport' };
     case 'plans':
@@ -77,6 +83,26 @@ function practiceRoute(rest: string[]): Route {
       return { name: 'plan', id: more[0] ?? 'new' };
     case 'run':
       return { name: 'practiceRun', parts: more };
+    default:
+      return { name: 'notFound' };
+  }
+}
+
+function plannerRoute(rest: string[]): Route {
+  const [sub, ...more] = rest;
+  switch (sub) {
+    case undefined:
+      return { name: 'planner' };
+    case 'homework':
+      return { name: 'homework' };
+    case 'task':
+      return { name: 'task', id: more[0] ?? 'new', assessmentId: more[0] === 'new' ? more[1] : undefined };
+    case 'windows':
+      return { name: 'windows' };
+    case 'exams':
+      return { name: 'exams' };
+    case 'exam':
+      return { name: 'plan', id: more[0] ?? 'new', from: 'planner' };
     default:
       return { name: 'notFound' };
   }

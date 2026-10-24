@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ProblemImage from '../components/ProblemImage.svelte';
   import Snipper from '../components/Snipper.svelte';
-  import { listSkills } from '../lib/db';
+  import { getTask, listSkills, saveTask } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
   import { findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
-  import { SUBJECTS, type Skill } from '../lib/types';
+  import { SUBJECTS, type Skill, type Task } from '../lib/types';
   import type { AnalysedSheet, DraftPair } from '../lib/practice/worksheet';
   import type { Picture } from '../lib/practice/pdf';
 
@@ -24,6 +25,13 @@
     fixing: { index: number; part: 'question' | 'solution' } | null;
     pendingQuestion: Picture | null;
   }
+
+  /** Set when importing a SmarterEd set from the homework list. */
+  let { taskId }: { taskId?: string } = $props();
+  let task = $state.raw<Task | null>(null);
+  // The page is rebuilt for a new address, so the first value is the only one.
+  const forTask = untrack(() => taskId);
+  if (forTask) getTask(forTask).then((t) => (task = t ?? null));
 
   type Step = 'pick' | 'reading' | 'review' | 'saving' | 'done';
   let step = $state<Step>('pick');
@@ -53,7 +61,7 @@
       progress = `${file.name} (${n + 1} of ${pdfs.length})`;
       try {
         const analysed = await lib.analyseSheet(file, (done, total) => (progress = `${file.name}: cropping ${done} of ${total}`));
-        const subject = analysed.sheet.subject || SUBJECTS[1];
+        const subject = analysed.sheet.subject || task?.subject || SUBJECTS[1];
         const existing = findSkill(skills, subject, analysed.sheet.title);
         sheets.push({
           id: nextId++,
@@ -150,6 +158,13 @@
         skills = await listSkills();
       }
       for (const s of sheets) s.analysed.pdf.destroy();
+      // Homework: link the set to its skill. An optional set just joins the skill pool.
+      if (task && out[0]) {
+        const linked: Task = { ...task, skillId: out[0].result.skill.id };
+        if (!task.required) Object.assign(linked, { status: 'done', finished: Date.now() });
+        await saveTask(linked);
+        task = linked;
+      }
       results = out;
       sheets = [];
       step = 'done';
@@ -171,6 +186,7 @@
   <section class="head">
     <div class="eyebrow"><a href={href('practice')}>Practice</a> / Import</div>
     <h1>Import SmarterEd PDFs</h1>
+    {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
       Drop in one or more worksheets. The app finds each question and its worked solution and cuts them out as
       pictures. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
@@ -329,9 +345,21 @@
           </span>
         </div>
       {/each}
+      {#if task?.skillId}
+        <p class="muted">
+          {task.required
+            ? `Linked to the homework "${task.title}". Doing these questions in a problem session ticks it off.`
+            : `"${task.title}" is optional, so its questions joined your skill pool and will come up in your daily mix.`}
+        </p>
+      {/if}
       <div class="row-actions">
-        <a class="btn primary" href={href('practice')}>Go to practice</a>
-        <button class="btn" onclick={startOver}>Import more</button>
+        {#if task?.skillId && task.required}
+          <a class="btn primary" href={href('practice', 'run', 'skill', task.skillId)}>Do these questions now</a>
+          <a class="btn" href={href('planner', 'homework')}>Back to homework</a>
+        {:else}
+          <a class="btn primary" href={href('practice')}>Go to practice</a>
+          <button class="btn" onclick={startOver}>Import more</button>
+        {/if}
       </div>
     </section>
   {/if}
@@ -342,6 +370,9 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .accent {
+    color: var(--accent);
   }
   .head p {
     margin: 0;

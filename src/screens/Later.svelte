@@ -1,13 +1,9 @@
 <script lang="ts">
   import { href } from '../lib/router.svelte';
 
-  let { feature }: { feature: 'planner' | 'progress' } = $props();
+  let { feature }: { feature: 'progress' } = $props();
 
   const info = {
-    planner: {
-      title: 'Planner and homework',
-      text: 'Homework list, automatic study plan, exam prep and Google Calendar. Coming after problem practice.',
-    },
     progress: {
       title: 'Progress',
       text: 'Weak skills, recall by topic with colour grading, weekly totals and your real marks. Coming once there is review history to show.',

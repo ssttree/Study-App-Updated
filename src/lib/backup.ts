@@ -1,10 +1,14 @@
 // Backup and restore. A backup is one JSON file holding every deck, card,
-// review and setting, plus practice skills, questions (with their pictures)
-// and attempts. Browser storage can be wiped (clearing site data, a
+// review and setting, plus practice skills, questions (with their pictures),
+// attempts, homework, plans and study windows. Browser storage can be wiped (clearing site data, a
 // new laptop), so this file is the safety net.
 
 import {
+  getAvailability,
   getSettings,
+  hasAvailability,
+  listPlans,
+  listTasks,
   listAttempts,
   listCards,
   listDecks,
@@ -16,11 +20,11 @@ import {
   replaceAll,
   saveSettings,
 } from './db';
-import type { Attempt, Card, Deck, Problem, ReviewLog, Settings, Skill, StoredImage, TestPlan } from './types';
+import type { Attempt, Availability, Card, DayPlan, Deck, Problem, ReviewLog, Settings, Skill, StoredImage, Task, TestPlan } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 export const BACKUP_FORMAT = 'study-app-backup';
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 export const BACKUP_REMINDER_DAYS = 7;
 
 export interface Backup {
@@ -36,10 +40,14 @@ export interface Backup {
   attempts: Attempt[];
   testPlans: TestPlan[];
   images: StoredImage[];
+  tasks: Task[];
+  plans: DayPlan[];
+  /** Missing until the study windows have been set up. */
+  availability?: Availability;
 }
 
 export async function createBackup(now = Date.now()): Promise<Backup> {
-  const [decks, cards, reviewLogs, settings, skills, problems, attempts, testPlans, images] = await Promise.all([
+  const [decks, cards, reviewLogs, settings, skills, problems, attempts, testPlans, images, tasks, plans, ownWindows] = await Promise.all([
     listDecks(),
     listCards(),
     listReviewLogs(),
@@ -49,6 +57,9 @@ export async function createBackup(now = Date.now()): Promise<Backup> {
     listAttempts(),
     listTestPlans(),
     listImages(),
+    listTasks(),
+    listPlans(),
+    hasAvailability(),
   ]);
   return {
     format: BACKUP_FORMAT,
@@ -63,6 +74,9 @@ export async function createBackup(now = Date.now()): Promise<Backup> {
     attempts,
     testPlans,
     images,
+    tasks,
+    plans,
+    availability: ownWindows ? await getAvailability() : undefined,
   };
 }
 
@@ -101,7 +115,7 @@ export function parseBackup(data: unknown): Backup {
   const deckIds = new Set(b.decks.map((d) => d.id));
   const orphan = b.cards.find((c) => !deckIds.has(c.deckId));
   if (orphan) throw new Error('This backup has cards that belong to a missing deck, so it may be damaged.');
-  // Version 1 backups were made before problem practice, so they have none of it.
+  // Version 1 backups were made before problem practice and version 2 before the planner, so they have none of it.
   const list = <T>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
   return {
     format: BACKUP_FORMAT,
@@ -116,6 +130,9 @@ export function parseBackup(data: unknown): Backup {
     attempts: list(b.attempts),
     testPlans: list(b.testPlans),
     images: list(b.images),
+    tasks: list(b.tasks),
+    plans: list(b.plans),
+    availability: b.availability && Array.isArray(b.availability.windows) ? b.availability : undefined,
   };
 }
 

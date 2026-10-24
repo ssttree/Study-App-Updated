@@ -3,9 +3,13 @@
 // adding a case to upgrade(); existing data is kept.
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { defaultAvailability } from './planner/availability';
 import {
   DEFAULT_SETTINGS,
   type Attempt,
+  type Availability,
+  type DayPlan,
+  type Task,
   type Card,
   type Deck,
   type Problem,
@@ -30,10 +34,12 @@ interface StudyDB extends DBSchema {
   attempts: { key: string; value: Attempt; indexes: { skillId: string; problemId: string; at: number } };
   testPlans: { key: string; value: TestPlan };
   images: { key: string; value: StoredImage };
+  tasks: { key: string; value: Task };
+  plans: { key: string; value: DayPlan };
 }
 
 export const DB_NAME = 'study-app';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<StudyDB>> | null = null;
 
@@ -61,6 +67,11 @@ export function db(): Promise<IDBPDatabase<StudyDB>> {
         attempts.createIndex('at', 'at');
         database.createObjectStore('testPlans', { keyPath: 'id' });
         database.createObjectStore('images', { keyPath: 'id' });
+      }
+      if (oldVersion < 3) {
+        // Planner and homework. Assessments live in testPlans.
+        database.createObjectStore('tasks', { keyPath: 'id' });
+        database.createObjectStore('plans', { keyPath: 'date' });
       }
     },
     // A newer version of the app opened in another tab: step aside so it can upgrade.
@@ -193,9 +204,24 @@ export interface AllData {
   attempts?: Attempt[];
   testPlans?: TestPlan[];
   images?: StoredImage[];
+  tasks?: Task[];
+  plans?: DayPlan[];
+  availability?: Availability;
 }
 
-const ALL_STORES = ['decks', 'cards', 'reviewLogs', 'meta', 'skills', 'problems', 'attempts', 'testPlans', 'images'] as const;
+const ALL_STORES = [
+  'decks',
+  'cards',
+  'reviewLogs',
+  'meta',
+  'skills',
+  'problems',
+  'attempts',
+  'testPlans',
+  'images',
+  'tasks',
+  'plans',
+] as const;
 
 /** Replaces everything with the given data (used by backup restore). */
 export async function replaceAll(data: AllData): Promise<void> {
@@ -210,7 +236,11 @@ export async function replaceAll(data: AllData): Promise<void> {
   for (const attempt of data.attempts ?? []) await tx.objectStore('attempts').put(attempt);
   for (const plan of data.testPlans ?? []) await tx.objectStore('testPlans').put(plan);
   for (const image of data.images ?? []) await tx.objectStore('images').put(image);
+  for (const task of data.tasks ?? []) await tx.objectStore('tasks').put(task);
+  for (const plan of data.plans ?? []) await tx.objectStore('plans').put(plan);
   await tx.objectStore('meta').put(data.settings, 'settings');
+  if (data.availability) await tx.objectStore('meta').put(data.availability, 'availability');
+  else await tx.objectStore('meta').delete('availability');
   await tx.done;
 }
 
@@ -364,4 +394,62 @@ export async function saveTestPlan(plan: TestPlan): Promise<void> {
 
 export async function deleteTestPlan(id: string): Promise<void> {
   await (await db()).delete('testPlans', id);
+}
+
+// Planner and homework
+
+export async function listTasks(): Promise<Task[]> {
+  return (await db()).getAll('tasks');
+}
+
+export async function getTask(id: string): Promise<Task | undefined> {
+  return (await db()).get('tasks', id);
+}
+
+export async function saveTask(task: Task): Promise<void> {
+  await (await db()).put('tasks', task);
+}
+
+export async function saveTasks(tasks: Task[]): Promise<void> {
+  const tx = (await db()).transaction('tasks', 'readwrite');
+  for (const t of tasks) await tx.store.put(t);
+  await tx.done;
+}
+
+/** Deletes a task and its attached PDF. Plans that mention it just drop the item when they rebuild. */
+export async function deleteTask(id: string): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['tasks', 'images'], 'readwrite');
+  const task = await tx.objectStore('tasks').get(id);
+  if (task?.attachmentId) await tx.objectStore('images').delete(task.attachmentId);
+  await tx.objectStore('tasks').delete(id);
+  await tx.done;
+}
+
+export async function listPlans(): Promise<DayPlan[]> {
+  return (await db()).getAll('plans');
+}
+
+export async function getPlan(date: string): Promise<DayPlan | undefined> {
+  return (await db()).get('plans', date);
+}
+
+export async function savePlans(plans: DayPlan[]): Promise<void> {
+  const tx = (await db()).transaction('plans', 'readwrite');
+  for (const p of plans) await tx.store.put(p);
+  await tx.done;
+}
+
+export async function getAvailability(): Promise<Availability> {
+  const stored = (await (await db()).get('meta', 'availability')) as Availability | undefined;
+  return stored ?? defaultAvailability();
+}
+
+/** Only true once the weekly windows have been saved at least once. */
+export async function hasAvailability(): Promise<boolean> {
+  return (await (await db()).get('meta', 'availability')) !== undefined;
+}
+
+export async function saveAvailability(availability: Availability): Promise<void> {
+  await (await db()).put('meta', availability, 'availability');
 }

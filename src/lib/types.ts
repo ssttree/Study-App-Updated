@@ -184,6 +184,20 @@ export interface Attempt {
   planId?: string;
 }
 
+export type AssessmentKind = 'test' | 'exam' | 'assignment';
+
+/** Days before an assessment that each prep stage starts. */
+export interface RampDays {
+  build: number;
+  focus: number;
+  final: number;
+}
+
+/**
+ * An assessment: a class test, an exam (trials or HSC) or an assignment.
+ * Started life as a problem practice "test plan", so the store keeps that
+ * name and the newer fields are optional for plans made before the planner.
+ */
 export interface TestPlan {
   id: string;
   name: string;
@@ -192,6 +206,112 @@ export interface TestPlan {
   date: number;
   skillIds: string[];
   created: number;
+  /** Missing means a class test. */
+  kind?: AssessmentKind;
+  /** Percent of the course mark, if known. */
+  weighting?: number;
+  /** Custom ramp for this one; missing means the default for its kind. */
+  ramp?: RampDays;
+  /** Flashcard decks in scope: their cards aim for 95% recall in the focus stage. */
+  deckIds?: string[];
+  /** Filled in afterwards. */
+  mark?: number;
+  outOf?: number;
+  /** Skills that went badly, pulled forward in the schedule. */
+  badSkillIds?: string[];
+}
+
+// Planner and homework.
+
+export type TaskType = 'classwork' | 'smartered' | 'assignment' | 'other';
+export type TaskStatus = 'open' | 'done' | 'dropped';
+
+export interface Task {
+  id: string;
+  title: string;
+  /** One of SUBJECTS, or empty when not known. */
+  subject: string;
+  type: TaskType;
+  /** Due date as a local date key, YYYY-MM-DD. */
+  due: string;
+  /** Time estimate in minutes. */
+  minutes: number;
+  /** Minutes already done, for tasks split over more than one window. */
+  spent: number;
+  required: boolean;
+  status: TaskStatus;
+  notes: string;
+  /** How many times it was planned for a day and not finished. */
+  carryOvers: number;
+  /** Date key of the last plan it was carried over from, so it only counts once a day. */
+  carriedFrom?: string;
+  /** Practice skill made from a SmarterEd set. */
+  skillId?: string;
+  /** Assignment milestone: the assessment it belongs to. */
+  assessmentId?: string;
+  /** An attached PDF, kept in the images store. */
+  attachmentId?: string;
+  attachmentName?: string;
+  created: number;
+  finished?: number;
+}
+
+/** bus: flashcards (and light homework). desk: homework and paper problems. flexible: only optional items. */
+export type WindowKind = 'bus' | 'desk' | 'flexible';
+/** Which weekly template a window belongs to. */
+export type Season = 'all' | 'off' | 'soccer';
+
+export interface StudyWindow {
+  id: string;
+  name: string;
+  /** 0 Sunday to 6 Saturday. */
+  days: number[];
+  /** 24 hour time, HH:MM. */
+  start: string;
+  minutes: number;
+  kind: WindowKind;
+  season: Season;
+}
+
+export interface Availability {
+  windows: StudyWindow[];
+  /** Soccer season, as MM-DD, inclusive. */
+  soccerStart: string;
+  soccerEnd: string;
+  /** Training nights in season (0 Sunday to 6 Saturday): desk windows from 4pm vanish. */
+  trainingDays: number[];
+  /** One-off days, by date key. Replaces the template for that day. */
+  overrides: Record<string, StudyWindow[]>;
+}
+
+export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';
+export type PlanItemStatus = 'todo' | 'done' | 'skipped';
+
+export interface PlanItem {
+  id: string;
+  kind: PlanItemKind;
+  windowId: string;
+  minutes: number;
+  taskId?: string;
+  /** Problem subjects (problems), or the subject being prepped. */
+  subjects?: string[];
+  assessmentId?: string;
+  /** Pinned items stay put when the plan rebuilds. Moving an item pins it. */
+  pinned: boolean;
+  status: PlanItemStatus;
+  /** Opened at least once, so a rebuild leaves it alone. */
+  started?: boolean;
+  /** Only in flexible windows: fine to skip. */
+  optional?: boolean;
+}
+
+export interface DayPlan {
+  /** Date key, YYYY-MM-DD. */
+  date: string;
+  items: PlanItem[];
+  built: number;
+  /** Set once unfinished homework from this day has been carried over. */
+  closed?: boolean;
 }
 
 /** A cropped question or solution picture, as a data URL. */
