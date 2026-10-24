@@ -3,6 +3,7 @@
   import { downloadBackup, parseBackup, restoreBackup, type Backup } from '../lib/backup';
   import { plural } from '../lib/load';
   import type { Settings } from '../lib/types';
+  import { href } from '../lib/router.svelte';
 
   let settings = $state<Settings | null>(null);
   let saved = $state(false);
@@ -161,6 +162,14 @@
       <p class="muted hint">
         After the first visit the app saves its own files, so it opens and works with no internet, for example on the
         bus. Everything you do is saved straight away in this browser. {storageNote}
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>Phone and Google Calendar</h2>
+      <p class="muted hint">
+        Add homework from your phone, and put due dates and study blocks in Google Calendar.
+        <a href={href('planner', 'connect')}>Set them up</a>
       </p>
     </section>
   {/if}

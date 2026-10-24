@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { saveTask } from '../lib/db';
-  import { parseQuickAdd } from '../lib/planner/quickadd';
+  import { getCalendarCache, saveTask } from '../lib/db';
+  import { parseQuickAdd, subjectFromTitle } from '../lib/planner/quickadd';
+  import { lessonAt } from '../lib/planner/calendar';
   import { taskFromQuick } from '../lib/planner/actions';
   import { dueLabel } from '../lib/planner/dates';
   import { shortSubject } from '../lib/practice/load';
@@ -10,7 +11,14 @@
 
   let line = $state('');
   let input = $state<HTMLInputElement | null>(null);
-  const parsed = $derived(line.trim() ? parseQuickAdd(line, today) : null);
+  // With the timetable connected, the lesson you're in is the subject unless you type one.
+  let lesson = $state('');
+  getCalendarCache().then((c) => (lesson = subjectFromTitle(lessonAt(c, Date.now()))));
+  const parsed = $derived.by(() => {
+    if (!line.trim()) return null;
+    const q = parseQuickAdd(line, today);
+    return q.found.subject || !lesson ? q : { ...q, subject: lesson };
+  });
 
   async function add(e: SubmitEvent) {
     e.preventDefault();
@@ -40,7 +48,9 @@
   {#if parsed}
     <div class="chips mono" aria-live="polite">
       <span class="chip strong">{parsed.title}</span>
-      <span class="chip" class:guess={!parsed.found.subject}>{parsed.subject ? shortSubject(parsed.subject) : 'no subject'}</span>
+      <span class="chip" class:guess={!parsed.found.subject}>
+        {parsed.subject ? shortSubject(parsed.subject) : 'no subject'}{!parsed.found.subject && parsed.subject ? ' (lesson now)' : ''}
+      </span>
       <span class="chip" class:guess={!parsed.found.due}>{dueLabel(parsed.due, today)}</span>
       <span class="chip" class:guess={!parsed.found.minutes}>{parsed.minutes} min</span>
       {#if parsed.type === 'smartered'}<span class="chip">SmarterEd set</span>{/if}

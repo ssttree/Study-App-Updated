@@ -14,7 +14,7 @@
   let oneOff = $state('');
 
   const ORDER = [1, 2, 3, 4, 5, 6, 0];
-  const KINDS: WindowKind[] = ['bus', 'desk', 'flexible'];
+  const KINDS: WindowKind[] = ['bus', 'desk', 'flexible', 'school'];
   const SEASONS: { value: Season; label: string }[] = [
     { value: 'all', label: 'All year' },
     { value: 'off', label: 'Off season only' },
@@ -54,6 +54,12 @@
   function addWindow() {
     if (!a) return;
     a.windows.push({ id: newId(), name: 'New window', days: [1, 2, 3, 4, 5], start: '19:00', minutes: 30, kind: 'desk', season: 'all' });
+    changed();
+  }
+
+  function addStudyPeriod() {
+    if (!a) return;
+    a.windows.push({ id: newId(), name: 'Study period', days: [], start: '11:00', minutes: 60, kind: 'school', season: 'all' });
     changed();
   }
 
@@ -145,10 +151,36 @@
       </button>
       {#if totals}
         <span class="mono muted small">
-          {minutesText(totals.desk)} desk · {minutesText(totals.bus)} bus · {minutesText(totals.flexible)} flexible a week
+          {minutesText(totals.desk)} desk · {minutesText(totals.bus)} bus · {minutesText(totals.flexible)} flexible{totals.school
+            ? ` · ${minutesText(totals.school)} study periods`
+            : ''} a week
         </span>
       {/if}
     </div>
+
+    <section class="panel hours">
+      <div class="field">
+        <span>Study hours</span>
+        <span class="muted small">Windows at home and school are trimmed to fit, so nothing is planned outside them. The bus is left alone.</span>
+      </div>
+      <label class="field">
+        Not before
+        <input type="time" bind:value={a.earliest} oninput={changed} />
+      </label>
+      <label class="field">
+        Not after
+        <input type="time" bind:value={a.latest} oninput={changed} />
+      </label>
+      {#if a.earliest || a.latest}
+        <button
+          class="btn small"
+          onclick={() => {
+            a!.earliest = a!.latest = '';
+            changed();
+          }}>No limit</button
+        >
+      {/if}
+    </section>
 
     {#if season === 'soccer'}
       <section class="panel season">
@@ -202,6 +234,7 @@
       {/each}
       <div class="actions">
         <button class="btn" onclick={addWindow}>Add a window</button>
+        <button class="btn" onclick={addStudyPeriod}>Add a school study period</button>
         <button class="btn" onclick={reset}>Back to the starting windows</button>
       </div>
     </section>
@@ -296,6 +329,16 @@
   }
   .small {
     font-size: 13px;
+  }
+  .hours {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-end;
+    padding: 16px 18px;
+  }
+  .hours .field:first-child {
+    flex: 1 1 260px;
   }
   .season {
     display: grid;

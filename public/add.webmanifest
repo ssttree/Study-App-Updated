@@ -1,0 +1,11 @@
+{
+  "name": "Add homework",
+  "short_name": "Homework",
+  "description": "Add homework to the Study App from your phone.",
+  "start_url": "/add.html",
+  "scope": "/add.html",
+  "display": "standalone",
+  "theme_color": "#121316",
+  "background_color": "#121316",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

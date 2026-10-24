@@ -1,8 +1,6 @@
 // Planner days are local date keys like "2026-10-27", so a due date never
 // shifts with time zones or daylight saving.
 
-import { studyDayStart } from '../queue';
-
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 
 export function dateKey(ts: number): string {
@@ -31,9 +29,14 @@ export function weekday(key: string): number {
   return new Date(keyToTime(key)).getDay();
 }
 
-/** Today's key, where a new day starts at the study day hour (4am by default). */
+/**
+ * Today's key, where a new day starts at the study day hour (4am by default).
+ * Same rule as studyDayStart in queue.ts, kept here so the phone page stays small.
+ */
 export function todayKey(now: number, dayStartHour: number): string {
-  return dateKey(studyDayStart(now, dayStartHour));
+  const d = new Date(now);
+  if (d.getHours() < dayStartHour) d.setDate(d.getDate() - 1);
+  return dateKey(d.getTime());
 }
 
 /** "Today", "Tomorrow", "Wed 29 Oct". */

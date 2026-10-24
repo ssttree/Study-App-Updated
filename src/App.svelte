@@ -21,12 +21,14 @@
   import TaskEditor from './screens/TaskEditor.svelte';
   import Windows from './screens/Windows.svelte';
   import Exams from './screens/Exams.svelte';
+  import Connect from './screens/Connect.svelte';
+  import { sync } from './lib/sync';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
-    { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'plan:planner'] },
+    { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'connect', 'plan:planner'] },
     { label: 'Progress', link: href('progress'), match: ['later:progress'] },
   ];
 
@@ -34,6 +36,18 @@
   const key = $derived(
     route.name === 'later' ? `later:${route.feature}` : route.name === 'plan' && route.from ? `plan:${route.from}` : route.name,
   );
+
+  // Catch up with the server (phone inbox, Google Calendar) now and every 10 minutes while online.
+  $effect(() => {
+    sync();
+    const t = setInterval(() => sync(), 10 * 60_000);
+    const online = () => sync();
+    window.addEventListener('online', online);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('online', online);
+    };
+  });
 
   let now = $state(new Date());
   $effect(() => {
@@ -97,7 +111,7 @@
     {:else if route.name === 'plan'}
       <PlanEditor id={route.id} from={route.from} />
     {:else if route.name === 'planner'}
-      <Planner />
+      <Planner day={route.day} />
     {:else if route.name === 'homework'}
       <Homework />
     {:else if route.name === 'task'}
@@ -106,6 +120,8 @@
       <Windows />
     {:else if route.name === 'exams'}
       <Exams />
+    {:else if route.name === 'connect'}
+      <Connect result={route.result} />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'later'}

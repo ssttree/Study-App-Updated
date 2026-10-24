@@ -184,3 +184,22 @@ function minutesWord(w: string): number {
 function clampMinutes(n: number): number {
   return Math.max(5, Math.min(600, n));
 }
+
+/** Works out a subject from a lesson's name, like "12 Chemistry" or "Maths Ext 1". */
+export function subjectFromTitle(title: string | null): string {
+  if (!title) return '';
+  const t = title.toLowerCase();
+  if (/ext(ension)?\.?\s*2|\bx2\b|\bme2\b|\bmx2\b/.test(t)) return 'Maths Extension 2';
+  if (/ext(ension)?\.?\s*1|\bx1\b|\bme1\b|\bmx1\b/.test(t)) return 'Maths Extension 1';
+  if (/chem/.test(t)) return 'Chemistry';
+  if (/engineering|\bengin|\begs\b|\beng\s*stud/.test(t)) return 'Engineering Studies';
+  if (/english|\beng\b|\benga?\b/.test(t)) return 'English Advanced';
+  if (/business|\bbus\b|\bbst?\b/.test(t)) return 'Business Studies';
+  if (/math|\bmaa\b|\badv/.test(t)) return 'Maths Advanced';
+  return '';
+}
+
+/** "Maths Extension 1" -> "Ext 1", for tight spaces. */
+export function shortSubject(subject: string): string {
+  return subject.replace(/^Maths Extension /, 'Ext ').replace(/^Maths Advanced$/, 'Maths Adv');
+}

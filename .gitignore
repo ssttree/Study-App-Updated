@@ -4,3 +4,6 @@ dev-dist
 *.local
 .DS_Store
 coverage
+
+# Server data (phone inbox, Google sign-in)
+data/

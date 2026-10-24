@@ -21,11 +21,12 @@ export type Route =
   | { name: 'plans' }
   | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
-  | { name: 'planner' }
+  | { name: 'planner'; day?: string }
   | { name: 'homework' }
   | { name: 'task'; id: string; assessmentId?: string }
   | { name: 'windows' }
   | { name: 'exams' }
+  | { name: 'connect'; result?: string }
   | { name: 'later'; feature: 'progress' }
   | { name: 'notFound' };
 
@@ -93,6 +94,8 @@ function plannerRoute(rest: string[]): Route {
   switch (sub) {
     case undefined:
       return { name: 'planner' };
+    case 'day':
+      return { name: 'planner', day: more[0] };
     case 'homework':
       return { name: 'homework' };
     case 'task':
@@ -101,6 +104,8 @@ function plannerRoute(rest: string[]): Route {
       return { name: 'windows' };
     case 'exams':
       return { name: 'exams' };
+    case 'connect':
+      return { name: 'connect', result: more[0] };
     case 'exam':
       return { name: 'plan', id: more[0] ?? 'new', from: 'planner' };
     default:

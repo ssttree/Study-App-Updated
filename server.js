@@ -1,14 +1,18 @@
 // Serves the built app (the dist folder) on Railway. Railway sets PORT.
-// Everything runs in the browser, so this only hands out files.
+// The app runs in the browser; the server also keeps the phone's homework
+// inbox and talks to Google Calendar (see server/api.js).
 
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createApi } from './server/api.js';
+import { createStore } from './server/store.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), 'dist');
 const port = Number(process.env.PORT) || 3000;
+const api = createApi(createStore());
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -42,7 +46,10 @@ async function findFile(urlPath) {
 
 createServer(async (req, res) => {
   try {
-    const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    if (await api.handle(req, res, url)) return;
+    // The phone's quick add page.
+    const path = url.pathname === '/add' ? '/add.html' : url.pathname;
     let file = await findFile(path);
     if (!file) {
       // Missing files with an extension are real 404s; anything else is the app.
@@ -62,8 +69,10 @@ createServer(async (req, res) => {
     });
     if (req.method === 'HEAD') return res.end();
     createReadStream(file).pipe(res);
-  } catch {
-    res.writeHead(500).end('Server error');
+  } catch (e) {
+    console.error(e);
+    if (!res.headersSent) res.writeHead(500);
+    res.end('Server error');
   }
 }).listen(port, () => {
   console.log(`Study App running on port ${port}`);
