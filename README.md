@@ -64,6 +64,8 @@ works with no internet once it has been opened once.
   are checked once the app knows the right one.
 - **Sub-skills**: tick some questions on a broad worksheet (like Graphing) and make them a sub-skill with its own
   schedule.
+- **Moving questions**: tick questions on any skill and move them to another skill, for when a worksheet has a
+  question that really belongs to a different topic. Your past attempts on them move too.
 
 Planner and Progress are in the menu already and say what is coming.
 
