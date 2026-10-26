@@ -1,8 +1,10 @@
 // Loads what the practice screens need in one go.
 
-import { getSettings, listAttempts, listProblems, listSkills, listTestPlans } from '../db';
+import { getSettings, listAttempts, listProblems, listSkills, listTestPlans, listWeeklyReviews } from '../db';
 import { studyDayEnd } from '../queue';
 import type { Settings } from '../types';
+import { todayKey } from '../planner/dates';
+import { liveFocus } from '../progress/review';
 import type { PracticeData } from './mix';
 
 export interface PracticeCollection extends PracticeData {
@@ -11,14 +13,16 @@ export interface PracticeCollection extends PracticeData {
 }
 
 export async function loadPractice(now = Date.now()): Promise<PracticeCollection> {
-  const [settings, skills, problems, attempts, plans] = await Promise.all([
+  const [settings, skills, problems, attempts, plans, reviews] = await Promise.all([
     getSettings(),
     listSkills(),
     listProblems(),
     listAttempts(),
     listTestPlans(),
+    listWeeklyReviews(),
   ]);
-  return { settings, skills, problems, attempts, plans, dayEnd: studyDayEnd(now, settings.dayStartHour) };
+  const focus = liveFocus(reviews, todayKey(now, settings.dayStartHour));
+  return { settings, skills, problems, attempts, plans, focus, dayEnd: studyDayEnd(now, settings.dayStartHour) };
 }
 
 // Lives with quick add so the phone page can use it without the database.

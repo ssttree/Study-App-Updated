@@ -6,7 +6,13 @@
   import DeckView from './screens/DeckView.svelte';
   import CardEditor from './screens/CardEditor.svelte';
   import Settings from './screens/Settings.svelte';
-  import Later from './screens/Later.svelte';
+  import Progress from './screens/Progress.svelte';
+  import ProgressSubject from './screens/ProgressSubject.svelte';
+  import ProgressTopic from './screens/ProgressTopic.svelte';
+  import Activity from './screens/Activity.svelte';
+  import Marks from './screens/Marks.svelte';
+  import MarkEditor from './screens/MarkEditor.svelte';
+  import WeeklyReview from './screens/WeeklyReview.svelte';
   import CustomStudy from './screens/CustomStudy.svelte';
   import Import from './screens/Import.svelte';
   import Practice from './screens/Practice.svelte';
@@ -29,13 +35,11 @@
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
     { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'connect', 'plan:planner'] },
-    { label: 'Progress', link: href('progress'), match: ['later:progress'] },
+    { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'mark'] },
   ];
 
   const route = $derived(router.route);
-  const key = $derived(
-    route.name === 'later' ? `later:${route.feature}` : route.name === 'plan' && route.from ? `plan:${route.from}` : route.name,
-  );
+  const key = $derived(route.name === 'plan' && route.from ? `plan:${route.from}` : route.name);
 
   // Catch up with the server (phone inbox, Google Calendar) now and every 10 minutes while online.
   $effect(() => {
@@ -66,6 +70,9 @@
   <Review filterParts={route.filter} />
 {:else if route.name === 'customRun'}
   <Review customParts={route.parts} />
+{:else if route.name === 'weeklyReview'}
+  <!-- The weekly review is a short guided focus screen. -->
+  <WeeklyReview />
 {:else if route.name === 'practiceRun'}
   <!-- Problem practice is a focus screen too. -->
   {#key route}<PracticeRun parts={route.parts} />{/key}
@@ -124,8 +131,18 @@
       <Connect result={route.result} />
     {:else if route.name === 'settings'}
       <Settings />
-    {:else if route.name === 'later'}
-      <Later feature={route.feature} />
+    {:else if route.name === 'progress'}
+      <Progress />
+    {:else if route.name === 'progressSubject'}
+      <ProgressSubject subject={route.subject} />
+    {:else if route.name === 'progressTopic'}
+      <ProgressTopic subject={route.subject} topic={route.topic} />
+    {:else if route.name === 'activity'}
+      <Activity />
+    {:else if route.name === 'marks'}
+      <Marks />
+    {:else if route.name === 'mark'}
+      <MarkEditor id={route.id} assessmentId={route.assessmentId} year={route.year} />
     {:else}
       <main class="page"><h1>Page not found</h1><p><a href={href('today')}>Back to today</a></p></main>
     {/if}

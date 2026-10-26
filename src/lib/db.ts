@@ -22,6 +22,8 @@ import {
   type Skill,
   type StoredImage,
   type TestPlan,
+  type Mark,
+  type WeeklyReview,
 } from './types';
 
 interface StudyDB extends DBSchema {
@@ -40,10 +42,12 @@ interface StudyDB extends DBSchema {
   images: { key: string; value: StoredImage };
   tasks: { key: string; value: Task };
   plans: { key: string; value: DayPlan };
+  marks: { key: string; value: Mark };
+  weeklyReviews: { key: string; value: WeeklyReview };
 }
 
 export const DB_NAME = 'study-app';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise: Promise<IDBPDatabase<StudyDB>> | null = null;
 
@@ -76,6 +80,11 @@ export function db(): Promise<IDBPDatabase<StudyDB>> {
         // Planner and homework. Assessments live in testPlans.
         database.createObjectStore('tasks', { keyPath: 'id' });
         database.createObjectStore('plans', { keyPath: 'date' });
+      }
+      if (oldVersion < 4) {
+        // Progress: real marks and the Sunday weekly review.
+        database.createObjectStore('marks', { keyPath: 'id' });
+        database.createObjectStore('weeklyReviews', { keyPath: 'week' });
       }
     },
     // A newer version of the app opened in another tab: step aside so it can upgrade.
@@ -211,6 +220,8 @@ export interface AllData {
   tasks?: Task[];
   plans?: DayPlan[];
   availability?: Availability;
+  marks?: Mark[];
+  weeklyReviews?: WeeklyReview[];
 }
 
 const ALL_STORES = [
@@ -225,6 +236,8 @@ const ALL_STORES = [
   'images',
   'tasks',
   'plans',
+  'marks',
+  'weeklyReviews',
 ] as const;
 
 /** Replaces everything with the given data (used by backup restore). */
@@ -242,6 +255,8 @@ export async function replaceAll(data: AllData): Promise<void> {
   for (const image of data.images ?? []) await tx.objectStore('images').put(image);
   for (const task of data.tasks ?? []) await tx.objectStore('tasks').put(task);
   for (const plan of data.plans ?? []) await tx.objectStore('plans').put(plan);
+  for (const mark of data.marks ?? []) await tx.objectStore('marks').put(mark);
+  for (const review of data.weeklyReviews ?? []) await tx.objectStore('weeklyReviews').put(review);
   await tx.objectStore('meta').put(data.settings, 'settings');
   if (data.availability) await tx.objectStore('meta').put(data.availability, 'availability');
   else await tx.objectStore('meta').delete('availability');
@@ -465,6 +480,29 @@ export async function hasAvailability(): Promise<boolean> {
 
 export async function saveAvailability(availability: Availability): Promise<void> {
   await (await db()).put('meta', availability, 'availability');
+}
+
+// Progress
+
+export async function listMarks(): Promise<Mark[]> {
+  const marks = await (await db()).getAll('marks');
+  return marks.sort((a, b) => a.date.localeCompare(b.date) || a.created - b.created);
+}
+
+export async function saveMark(mark: Mark): Promise<void> {
+  await (await db()).put('marks', mark);
+}
+
+export async function deleteMark(id: string): Promise<void> {
+  await (await db()).delete('marks', id);
+}
+
+export async function listWeeklyReviews(): Promise<WeeklyReview[]> {
+  return (await db()).getAll('weeklyReviews');
+}
+
+export async function saveWeeklyReview(review: WeeklyReview): Promise<void> {
+  await (await db()).put('weeklyReviews', review);
 }
 
 // Phone and Google Calendar (this laptop only)

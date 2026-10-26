@@ -24,6 +24,8 @@ export interface PracticeData {
   problems: Problem[];
   attempts: Attempt[];
   plans: TestPlan[];
+  /** Focus skills picked in the weekly review: they get extra weight in the daily mix. */
+  focus?: string[];
 }
 
 export function newSkill(fields: Pick<Skill, 'subject' | 'name'> & Partial<Skill>, now = Date.now()): Skill {
@@ -143,7 +145,10 @@ export function buildDailyMix(data: PracticeData, opts: MixOptions): MixItem[] {
     ...weak.filter((s) => planIds.has(s.id) && !recent.has(s.id)).sort((a, b) => retrievability(a, now) - retrievability(b, now)),
   ];
   const rest = (list: Skill[]) => list.filter((s) => !planIds.has(s.id));
-  const order = [...planFirst, ...rest(due), ...rest(fresh), ...rest(weak).slice(0, MAINTENANCE)];
+  // Focus skills from the weekly review come next, unless done in the last two days.
+  const focusIds = new Set(data.focus ?? []);
+  const focus = rest(skills).filter((s) => focusIds.has(s.id) && !recent.has(s.id));
+  const order = [...planFirst, ...focus, ...rest(due), ...rest(fresh), ...rest(weak).slice(0, MAINTENANCE)];
   const first = (list: Skill[]) => [...list.filter((s) => planIds.has(s.id)), ...rest(list)];
   let items = fill(order, data, opts.minutes, now, rng, skills);
   // Nothing due at all: keep the weakest skills ticking over instead of an empty session.
@@ -368,13 +373,15 @@ export function recommendSubjects(data: PracticeData, now: number, dayEnd: numbe
         .filter((p) => p.subject === subject)
         .sort((a, b) => a.date - b.date)[0];
       const testInDays = plan ? Math.max(0, Math.ceil((plan.date - now) / DAY)) : null;
-      let score = due.length * 3 + weakness * 4 + Math.min(fresh, 4) * 2 + Math.min(daysSince ?? 7, 7);
+      const focus = mine.filter((s) => data.focus?.includes(s.id) && now - (lastBySkill.get(s.id) ?? 0) >= 2 * DAY).length;
+      let score = due.length * 3 + weakness * 4 + Math.min(fresh, 4) * 2 + Math.min(daysSince ?? 7, 7) + focus * 3;
       const rampDays = plan ? (rampOf(plan)?.build ?? 21) : 21;
       if (testInDays !== null) score += (rampDays + 1 - testInDays) * 1.5 * (21 / rampDays);
       const reasons: string[] = [];
       if (testInDays !== null) reasons.push(testInDays === 0 ? 'test today' : `test in ${testInDays} day${testInDays === 1 ? '' : 's'}`);
       if (due.length) reasons.push(`${due.length} skill${due.length === 1 ? '' : 's'} due`);
       if (fresh) reasons.push(`${fresh} new skill${fresh === 1 ? '' : 's'}`);
+      if (focus) reasons.push(`${focus} focus skill${focus === 1 ? '' : 's'}`);
       if (daysSince === null) reasons.push('not practised yet');
       else if (daysSince >= 2) reasons.push(`last practised ${daysSince} days ago`);
       return { subject, score, due: due.length, fresh, daysSince, testInDays, reason: reasons.join(', ') };

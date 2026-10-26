@@ -110,7 +110,26 @@ works with no internet once it has been opened once.
   calendar. The laptop syncs every 10 minutes while it's open and online, and keeps the last copy of your
   calendars so the plan still works offline.
 
-Progress is in the menu already and says what is coming.
+### Progress
+
+- **Subjects:** a tile per subject with its mastery (the chance you could do each skill or card today without
+  notes, averaged over its topics), how much you have started and an 8 week trend. Green is 90% or more (95%
+  when an exam is inside its prep ramp), amber 75% to 89%, red below. Unstarted skills count as 0%; skills
+  switched off (not taught yet) are left out. English Advanced is not tracked here.
+- **Topics and skills:** open a subject for its topics (weakest first, with recall on the next exam's day),
+  then a topic for each skill or flashcard topic: last practised, next due, recent ratings, right method rate.
+- **Weak skills:** the top 10 across subjects, ranked by low recall, wrong method taps and Again ratings in
+  the last 30 days, with anything on an upcoming exam boosted. Practise goes straight to that skill or those cards.
+- **Activity:** minutes, cards and questions per week, fortnight or month, against the same point last
+  time and against what the planner planned. No streaks.
+- **Marks:** Year 12 results and Year 11 tasks (with ranks) as a baseline. Past tests in the planner wait
+  for a mark. Each mark shows recall on the day beside it, which is not a predicted mark.
+- **Weekly review:** from Sunday the home screen offers a 10 minute review (look back, what moved, focus
+  skills, coming up, marks, a one line note). Focus skills come first in the next week's daily mix. The last
+  Sunday of the month looks back over the month.
+
+Recall comes from replaying your review history through FSRS, so past days (trends, recall on a test day)
+work without saved snapshots and survive a backup and restore.
 
 ## Running it on your laptop
 
@@ -182,6 +201,9 @@ src/
                      availability.ts the study windows and seasons, build.ts makes
                      the plan, assessments.ts the exam ramps, load.ts loads it all,
                      calendar.ts reads and writes Google Calendar events
+    progress/        recall.ts replays FSRS for mastery and grades, activity.ts
+                     time totals, review.ts the weekly review, load.ts weak
+                     skills, exam forecasts and marks
     sync.ts          talks to the server: phone inbox and Google Calendar
   add/               the phone quick add page (add.html), plain TypeScript
     anki/            Anki .apkg import: read.ts opens the file (zip + SQLite),

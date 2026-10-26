@@ -12,12 +12,32 @@
   import { EXTRA_WINDOW } from '../lib/planner/build';
   import { itemColour, itemLink, itemText } from '../lib/planner/labels';
   import { addDays, minutesText } from '../lib/planner/dates';
+  import { forecast, loadProgress, practiseHref, subjectSummaries, upcoming, weakList, type ProgressData } from '../lib/progress/load';
+  import { GRADE_COLOUR, gradeOf, pct } from '../lib/progress/recall';
+  import { hoursText, soFar } from '../lib/progress/activity';
+  import { reviewWaiting } from '../lib/progress/review';
+  import RecallBar from '../components/RecallBar.svelte';
 
   let data = $state.raw<Collection | null>(null);
   let backingUp = $state(false);
 
   let problems = $state.raw<{ subject: string; reason: string; minutes: number } | null>(null);
   let planner = $state.raw<PlannerData | null>(null);
+  let progress = $state.raw<ProgressData | null>(null);
+
+  // The five second answer: subjects, weakest three, this week so far, next exam.
+  const glance = $derived.by(() => {
+    if (!progress || !progress.units.length) return null;
+    const p = progress;
+    const next = upcoming(p)[0];
+    return {
+      subjects: subjectSummaries(p).filter((s) => !s.empty),
+      weak: weakList(p).slice(0, 3),
+      week: soFar(p.activity, 'week', p.today),
+      exam: next ? forecast(p, next) : null,
+      review: reviewWaiting(p.reviews, p.today) && p.activity.length > 0,
+    };
+  });
 
   async function load() {
     data = await loadCollection();
@@ -25,6 +45,7 @@
     const top = recommendSubjects(p, Date.now(), p.dayEnd)[0];
     problems = top ? { subject: top.subject, reason: top.reason, minutes: p.settings.problemMinutes } : null;
     planner = await loadPlanner();
+    progress = await loadProgress();
   }
   load();
 
@@ -164,6 +185,52 @@
       </a>
     {/if}
 
+    {#if glance}
+      {#if glance.review}
+        <a class="notice review" href={href('progress', 'review')}>
+          <strong>Weekly review</strong> · look back, pick focus skills, set up the week. About 10 min.
+          <span class="go">Start</span>
+        </a>
+      {/if}
+      <section class="glance">
+        <div class="section-head">
+          <h2>Progress</h2>
+          <a class="mono small" href={href('progress')}>Open progress</a>
+        </div>
+        {#each glance.subjects as s (s.subject)}
+          <a class="row subject" href={href('progress', 'subject', s.subject)}>
+            <span class="gname">{s.subject}</span>
+            <RecallBar recall={s.recall.recall} grade={s.grade} />
+            <span class="mono gpct" style:color={GRADE_COLOUR[s.grade]}>{pct(s.recall.recall)}</span>
+          </a>
+        {/each}
+        {#if glance.weak.length}
+          <div class="eyebrow sub">Weakest</div>
+          {#each glance.weak as w (w.unit.key)}
+            <div class="row subject">
+              <span class="name">{w.unit.name} <span class="muted small">{shortSubject(w.unit.subject)}</span></span>
+              <span class="mono" style:color={GRADE_COLOUR[gradeOf(w.recall, w.onExam)]}>{pct(w.recall)}</span>
+              <a class="btn small" href={practiseHref(progress!, w.unit)}>Practise</a>
+            </div>
+          {/each}
+        {/if}
+        <a class="row subject" href={href('progress', 'activity')}>
+          <span class="name">This week</span>
+          <span class="mono muted small">
+            {plural(glance.week.now.cards + glance.week.now.questions, 'review')} · {hoursText(glance.week.now.minutes)} · last week by now
+            {glance.week.before.cards + glance.week.before.questions} · {hoursText(glance.week.before.minutes)}
+          </span>
+        </a>
+        {#if glance.exam}
+          <a class="row subject" href={href('planner', 'exam', glance.exam.plan.id)}>
+            <span class="name">Next: {glance.exam.plan.name}</span>
+            <span class="mono muted small">{glance.exam.days === 0 ? 'today' : `in ${plural(glance.exam.days, 'day')}`}</span>
+            <span class="mono" style:color={GRADE_COLOUR[glance.exam.grade]} title="Recall on the day if you do nothing more">{pct(glance.exam.recall)}</span>
+          </a>
+        {/if}
+      </section>
+    {/if}
+
     {#if data.cards.length > 0 && backupOverdue(data.settings)}
       <div class="notice">
         {#if data.settings.lastBackupAt}
@@ -283,6 +350,31 @@
   }
   .name {
     flex: 1 1 260px;
+  }
+  .review {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--text);
+    text-decoration: none;
+    min-height: 56px;
+  }
+  .review .go {
+    margin-left: auto;
+    color: var(--accent);
+  }
+  .gname {
+    flex: 0 1 200px;
+    min-width: 150px;
+  }
+  .gpct {
+    width: 48px;
+    text-align: right;
+  }
+  .eyebrow.sub {
+    margin-top: 16px;
+    font-size: 12px;
   }
   .tiles {
     display: grid;

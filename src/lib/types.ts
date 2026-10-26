@@ -362,3 +362,36 @@ export function taskSkillIds(t: Pick<Task, 'skillIds' | 'skillId'>): string[] {
 export function taskAttachments(t: Pick<Task, 'attachments' | 'attachmentId' | 'attachmentName'>): { id: string; name: string }[] {
   return t.attachments ?? (t.attachmentId ? [{ id: t.attachmentId, name: t.attachmentName ?? 'PDF' }] : []);
 }
+
+// Progress.
+
+/** A real result: a Year 12 assessment or a Year 11 task kept as a baseline. */
+export interface Mark {
+  id: string;
+  subject: string;
+  name: string;
+  /** Date key, YYYY-MM-DD. */
+  date: string;
+  mark: number;
+  outOf: number;
+  /** Rank in the class or cohort, if known, e.g. 6 (of 24). */
+  rank?: number;
+  rankOf?: number;
+  /** 11 for the Year 11 baseline, 12 for this year. */
+  year: 11 | 12;
+  /** Progress topics it covered, for recall against result. */
+  topics: string[];
+  /** The planner assessment it belongs to, if any. */
+  assessmentId?: string;
+  created: number;
+}
+
+/** The Sunday check. Keyed by the Sunday's date key. */
+export interface WeeklyReview {
+  week: string;
+  status: 'done' | 'skipped';
+  /** Problem skills picked for extra weight in the coming week's daily mix. */
+  focusSkillIds: string[];
+  note: string;
+  at: number;
+}

@@ -16,6 +16,8 @@
   --info: #7fb2ff;
   --warn: #ff8a4c;
   --good: #7fd1a3;
+  /* Amber grade for "slipping" recall, kept apart from the accent so it never reads as a button. */
+  --mid: #e6c35c;
   /* Light "paper" panel so scanned question sheets stay readable later on. */
   --paper: #f4f1ea;
   --paper-ink: #1c1c1c;
