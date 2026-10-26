@@ -49,7 +49,7 @@ createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (await api.handle(req, res, url)) return;
     // The phone's quick add page.
-    const path = url.pathname === '/add' ? '/add.html' : url.pathname;
+    const path = url.pathname === '/add' ? '/add.html' : url.pathname === '/privacy' ? '/privacy.html' : url.pathname;
     let file = await findFile(path);
     if (!file) {
       // Missing files with an extension are real 404s; anything else is the app.
