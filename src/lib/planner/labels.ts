@@ -66,9 +66,8 @@ export function itemLink(item: PlanItem, tasks: Map<string, Task>): string {
       return reviewHref({ kind: 'all' });
     case 'homework': {
       const t = item.taskId ? tasks.get(item.taskId) : undefined;
-      if (t?.type === 'smartered') {
-        return taskSkillIds(t).length ? href('practice', 'run', 'task', t.id, minutes) : href('practice', 'import', 'task', t.id);
-      }
+      if (t && taskSkillIds(t).length) return href('practice', 'run', 'task', t.id, minutes);
+      if (t?.type === 'smartered') return href('practice', 'import', 'task', t.id);
       return href('planner', 'task', item.taskId ?? 'new');
     }
     case 'problems':

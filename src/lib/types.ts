@@ -225,6 +225,8 @@ export interface TestPlan {
 
 export type TaskType = 'classwork' | 'smartered' | 'assignment' | 'other';
 export type TaskStatus = 'open' | 'done' | 'dropped';
+/** desk: needs a desk, never planned on the bus. flashcards: card work, best on the bus. */
+export type StudyPlace = 'desk' | 'flashcards';
 
 export interface Task {
   id: string;
@@ -239,6 +241,8 @@ export interface Task {
   /** Minutes already done, for tasks split over more than one window. */
   spent: number;
   required: boolean;
+  /** Where it can be done. Missing means desk study. */
+  study?: StudyPlace;
   status: TaskStatus;
   notes: string;
   /** How many times it was planned for a day and not finished. */

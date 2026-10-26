@@ -66,6 +66,26 @@
   const shown = $derived(data ? (data.days.find((d) => d.date === dayKey) ?? data.days[0]) : undefined);
   const isToday = $derived(!!shown && !!data && shown.date === data.today);
 
+  // Day view shows one day in full, week view the whole week at once. Opening a day always shows it.
+  let view = $state<'day' | 'week'>('day');
+  try {
+    if (!dayKey && localStorage.getItem('planner-view') === 'week') view = 'week';
+  } catch {
+    // Storage can be blocked; the day view is fine.
+  }
+  function pickView(v: 'day' | 'week') {
+    view = v;
+    try {
+      localStorage.setItem('planner-view', v);
+    } catch {
+      // Not remembered, which is fine.
+    }
+  }
+  /** The days either side of the one shown, for stepping through the week. */
+  const prevDay = $derived(data && shown ? data.days.find((d) => d.date === addDays(shown.date, -1)) : undefined);
+  const nextDay = $derived(data && shown ? data.days.find((d) => d.date === addDays(shown.date, 1)) : undefined);
+  const dayHref = (date: string) => href('planner', 'day', date);
+
   /** Flashcards count as done once nothing is left to review today. */
   function isDone(item: PlanItem, date = data?.today): boolean {
     if (item.status === 'done') return true;
@@ -277,6 +297,20 @@
   {/if}
 
   {#if data && today && shown}
+    <div class="view-bar">
+      <div class="seg" role="group" aria-label="Planner view">
+        <button class:on={view === 'day'} aria-pressed={view === 'day'} onclick={() => pickView('day')}>Day</button>
+        <button class:on={view === 'week'} aria-pressed={view === 'week'} onclick={() => pickView('week')}>Week</button>
+      </div>
+      {#if view === 'day'}
+        <div class="step">
+          {#if prevDay}<a class="btn small" href={dayHref(prevDay.date)} aria-label="Previous day">&larr; {dayLabel(prevDay.date, data.today)}</a>{/if}
+          {#if nextDay}<a class="btn small" href={dayHref(nextDay.date)} aria-label="Next day">{dayLabel(nextDay.date, data.today)} &rarr;</a>{/if}
+        </div>
+      {/if}
+    </div>
+
+    {#if view === 'day'}
     <section>
       <div class="section-head">
         <h2>{isToday ? 'Today' : dayLabel(shown.date, data.today)}</h2>
@@ -405,6 +439,7 @@
         </div>
       {/if}
     </section>
+    {:else}
 
     <section>
       <div class="section-head">
@@ -414,7 +449,7 @@
       <div class="week">
         {#each data.days as day (day.date)}
           <div class="day" class:today={day.date === data.today} class:selected={day.date === shown.date}>
-            <a class="day-head" href={day.date === data.today ? href('planner') : href('planner', 'day', day.date)} title="Open this day">
+            <a class="day-head" href={dayHref(day.date)} title="Open this day">
               <strong>{dayLabel(day.date, data.today)}</strong>
               <span class="mono dim small">{minutesText(planned(day))}</span>
             </a>
@@ -457,6 +492,7 @@
         {/each}
       </div>
     </section>
+    {/if}
 
     <section class="links">
       <a class="row link" href={href('planner', 'homework')}>
@@ -534,6 +570,38 @@
     background: var(--surface);
     color: var(--text);
     font: 400 14px var(--font);
+  }
+  .view-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .seg {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+  }
+  .seg button {
+    min-height: 38px;
+    padding: 0 18px;
+    border-radius: 19px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: 400 14px var(--font);
+    cursor: pointer;
+  }
+  .seg button.on {
+    background: var(--line);
+    color: var(--text);
+  }
+  .step {
+    display: flex;
+    gap: 8px;
   }
   .section-head {
     display: flex;

@@ -114,7 +114,7 @@
     {:else if route.name === 'pdfImport'}
       <PdfImport taskId={route.taskId} />
     {:else if route.name === 'atarImport'}
-      <AtarImport />
+      <AtarImport taskId={route.taskId} />
     {:else if route.name === 'plan'}
       <PlanEditor id={route.id} from={route.from} />
     {:else if route.name === 'planner'}

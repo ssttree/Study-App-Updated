@@ -2,7 +2,7 @@
 // takes a few seconds. "chem finish q5-10 fri 20m" is a Chemistry task due
 // Friday that should take 20 minutes. Anything it can't find gets a default.
 
-import type { TaskType } from '../types';
+import type { StudyPlace, TaskType } from '../types';
 import { addDays, dateKey, weekday } from './dates';
 
 export const DEFAULT_MINUTES = 20;
@@ -51,6 +51,9 @@ const TYPE_WORDS: Record<string, TaskType> = {
   assn: 'assignment',
 };
 
+/** Words that make it flashcard work, which can be done on the bus. Kept in the title. */
+const CARD_WORDS = new Set(['cards', 'flashcards', 'flashcard', 'flash', 'anki']);
+
 export interface QuickTask {
   title: string;
   subject: string;
@@ -58,6 +61,7 @@ export interface QuickTask {
   due: string;
   minutes: number;
   required: boolean;
+  study: StudyPlace;
   /** What was worked out from the line, for the preview under the box. */
   found: { subject: boolean; due: boolean; minutes: boolean; type: boolean; optional: boolean };
 }
@@ -70,6 +74,7 @@ export function parseQuickAdd(line: string, today: string): QuickTask {
   let minutes = 0;
   let type: TaskType = 'classwork';
   let required = true;
+  let study: StudyPlace = 'desk';
   const words = line.trim().split(/\s+/).filter(Boolean);
   const keep: string[] = [];
 
@@ -110,6 +115,11 @@ export function parseQuickAdd(line: string, today: string): QuickTask {
       found.optional = true;
       continue;
     }
+    if (CARD_WORDS.has(w)) {
+      study = 'flashcards';
+      keep.push(raw);
+      continue;
+    }
     if (!found.type && TYPE_WORDS[w]) {
       type = TYPE_WORDS[w];
       found.type = true;
@@ -130,6 +140,7 @@ export function parseQuickAdd(line: string, today: string): QuickTask {
     due: due || addDays(today, 1),
     minutes: minutes || DEFAULT_MINUTES,
     required,
+    study,
     found,
   };
 }

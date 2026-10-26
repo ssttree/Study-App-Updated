@@ -25,6 +25,7 @@ interface Outgoing {
   due: string;
   minutes: number;
   required: boolean;
+  study: QuickTask['study'];
   at: number;
 }
 
@@ -116,6 +117,7 @@ function chips(q: QuickTask): string {
   ];
   if (q.type === 'smartered') bits.push('<span class="chip">SmarterEd set</span>');
   if (q.type === 'assignment') bits.push('<span class="chip">assignment</span>');
+  if (q.study === 'flashcards') bits.push('<span class="chip">flashcards, bus is fine</span>');
   if (!q.required) bits.push('<span class="chip">optional</span>');
   return bits.join('');
 }
@@ -165,7 +167,8 @@ function render() {
       Subject, day and time in any order: <span class="mono">chem</span>, <span class="mono">ext1</span>,
       <span class="mono">adv</span>, <span class="mono">eng</span>; <span class="mono">fri</span>,
       <span class="mono">tmr</span>, <span class="mono">3/11</span>; <span class="mono">20m</span>.
-      <span class="mono">set</span> for SmarterEd, <span class="mono">opt</span> if optional.
+      <span class="mono">set</span> for SmarterEd, <span class="mono">opt</span> if optional,
+      <span class="mono">cards</span> for flashcards you can do on the bus.
     </p>
     ${pending.length || sent.length ? `<h2>Added</h2><ul class="list">${pending.map((t) => row(t, true)).join('')}${sent.map((t) => row(t, false)).join('')}</ul>` : ''}`;
   const input = document.getElementById('line') as HTMLInputElement;
@@ -183,7 +186,7 @@ function render() {
     e.preventDefault();
     const q = parse(input.value);
     if (!q) return;
-    const task: Outgoing = { title: q.title, subject: q.subject, type: q.type, due: q.due, minutes: q.minutes, required: q.required, at: Date.now() };
+    const task: Outgoing = { title: q.title, subject: q.subject, type: q.type, due: q.due, minutes: q.minutes, required: q.required, study: q.study, at: Date.now() };
     store(PENDING, [...load<Outgoing[]>(PENDING, []), task]);
     input.value = '';
     flush();

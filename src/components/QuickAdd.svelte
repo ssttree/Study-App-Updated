@@ -55,6 +55,7 @@
       <span class="chip" class:guess={!parsed.found.minutes}>{parsed.minutes} min</span>
       {#if parsed.type === 'smartered'}<span class="chip">SmarterEd set</span>{/if}
       {#if parsed.type === 'assignment'}<span class="chip">assignment</span>{/if}
+      {#if parsed.study === 'flashcards'}<span class="chip">flashcards, bus is fine</span>{/if}
       {#if !parsed.required}<span class="chip">optional</span>{/if}
     </div>
   {:else}
@@ -63,7 +64,8 @@
       <span class="mono">adv</span>, <span class="mono">eng</span> (English), <span class="mono">engin</span>;
       <span class="mono">fri</span>, <span class="mono">tmr</span>, <span class="mono">3/11</span>;
       <span class="mono">20m</span>, <span class="mono">1h</span>. Add <span class="mono">set</span> for a SmarterEd set,
-      <span class="mono">opt</span> if it's optional.
+      <span class="mono">opt</span> if it's optional,
+      <span class="mono">cards</span> if it's flashcards you can do on the bus.
     </p>
   {/if}
 </form>

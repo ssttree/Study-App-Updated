@@ -17,7 +17,7 @@ export type Route =
   | { name: 'skills'; subject?: string }
   | { name: 'skill'; id: string }
   | { name: 'pdfImport'; taskId?: string }
-  | { name: 'atarImport' }
+  | { name: 'atarImport'; taskId?: string }
   | { name: 'plans' }
   | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
@@ -83,7 +83,7 @@ function practiceRoute(rest: string[]): Route {
     case 'import':
       return more[0] === 'task' && more[1] ? { name: 'pdfImport', taskId: more[1] } : { name: 'pdfImport' };
     case 'atar':
-      return { name: 'atarImport' };
+      return more[0] === 'task' && more[1] ? { name: 'atarImport', taskId: more[1] } : { name: 'atarImport' };
     case 'plans':
       return { name: 'plans' };
     case 'plan':

@@ -64,6 +64,11 @@ describe('quick add', () => {
     expect(q).toMatchObject({ title: 'Finish q5-10', subject: 'Chemistry', due: '2026-10-30', minutes: 20, required: true, type: 'classwork' });
   });
 
+  it('reads "cards" as flashcard work and keeps it in the title', () => {
+    expect(parseQuickAdd('eng quote cards fri', TODAY)).toMatchObject({ title: 'Quote cards', study: 'flashcards' });
+    expect(parseQuickAdd('chem q5-10', TODAY).study).toBe('desk');
+  });
+
   it('defaults to due tomorrow, 20 minutes, no subject', () => {
     const q = parseQuickAdd('read chapter 4', TODAY);
     expect(q).toMatchObject({ title: 'Read chapter 4', subject: '', due: '2026-10-25', minutes: 20 });
@@ -162,12 +167,29 @@ describe('building the plan', () => {
     ]);
   });
 
-  it('lets short homework ride the bus home when the desk is full', () => {
+  it('never puts desk study on the bus, even short work when the desk is full', () => {
     const big = task('Prac write-up', { minutes: 45 });
-    const small = task('Vocab', { minutes: 15 });
+    const small = task('Questions', { minutes: 15 });
     const [mon] = buildWeek(input({ tasks: [big, small] }));
-    expect(mon.plan.items.find((it) => it.taskId === small.id)?.windowId).toBe('bus-pm');
+    const windows = mon.plan.items.filter((it) => it.kind === 'homework').map((it) => it.windowId);
+    expect(windows.every((w) => w === 'desk-pm')).toBe(true);
+    expect(mon.warnings[0]).toContain('Questions');
+  });
+
+  it('puts flashcard homework on the bus before the desk', () => {
+    const big = task('Prac write-up', { minutes: 45 });
+    const vocab = task('Vocab cards', { minutes: 15, study: 'flashcards' });
+    const [mon] = buildWeek(input({ tasks: [big, vocab] }));
+    expect(mon.plan.items.find((it) => it.taskId === vocab.id)?.windowId).toMatch(/^bus/);
+    expect(mon.plan.items.find((it) => it.taskId === big.id)?.windowId).toBe('desk-pm');
     expect(mon.warnings).toEqual([]);
+  });
+
+  it('lets optional flashcard homework use spare bus time', () => {
+    const cards = task('Extra cards', { minutes: 10, required: false, study: 'flashcards', due: '2026-10-29' });
+    const [mon] = buildWeek(input({ tasks: [cards], flashMinutes: () => 10 }));
+    expect(mon.plan.items.find((it) => it.taskId === cards.id)).toMatchObject({ optional: true });
+    expect(mon.plan.items.find((it) => it.taskId === cards.id)?.windowId).toMatch(/^bus/);
   });
 
   it('only puts optional things in flexible windows', () => {

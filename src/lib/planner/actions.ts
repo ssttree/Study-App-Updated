@@ -16,6 +16,7 @@ export function taskFromQuick(q: QuickTask, now = Date.now()): Task {
     minutes: q.minutes,
     spent: 0,
     required: q.required,
+    study: q.study,
     status: 'open',
     notes: '',
     carryOvers: 0,

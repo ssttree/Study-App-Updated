@@ -1,11 +1,12 @@
 <script lang="ts">
   import ProblemImage from '../components/ProblemImage.svelte';
-  import { listSkills } from '../lib/db';
+  import { getTask, listSkills, saveTask } from '../lib/db';
   import { imageToDataUrl } from '../lib/images';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
   import { pairByOrder, saveProblems, type Picture, type SaveResult } from '../lib/practice/save';
-  import { SUBJECTS, type Skill } from '../lib/types';
+  import { SUBJECTS, taskSkillIds, type Skill, type Task } from '../lib/types';
+  import { untrack } from 'svelte';
 
   interface Shot {
     id: number;
@@ -30,6 +31,16 @@
   let nextId = 0;
 
   listSkills().then((s) => (skills = s));
+
+  /** Homework these questions are for: they get linked to it, like a SmarterEd import. */
+  let { taskId }: { taskId?: string } = $props();
+  let task = $state.raw<Task | null>(null);
+  const forTask = untrack(() => taskId);
+  if (forTask)
+    getTask(forTask).then((t) => {
+      task = t ?? null;
+      if (t?.subject) subject = t.subject;
+    });
 
   const subjectSkills = $derived(skills.filter((k) => k.subject === subject));
   const pairs = $derived(pairByOrder(questions, solutions));
@@ -101,6 +112,13 @@
       }));
       const choice = skill === 'new' ? ({ kind: 'new', subject, name } as const) : ({ kind: 'existing', id: skill } as const);
       result = await saveProblems(choice, drafts, 'atarnotes', from);
+      // Homework: link it to the test's skill. An optional one just joins the skill pool.
+      if (task) {
+        const linked: Task = { ...task, skillIds: [...new Set([...taskSkillIds(task), result.skill.id])], skillId: undefined };
+        if (!task.required) Object.assign(linked, { status: 'done', finished: Date.now() });
+        await saveTask(linked);
+        task = linked;
+      }
       questions = [];
       solutions = [];
       phase = 'questions';
@@ -117,6 +135,7 @@
   <section class="head">
     <div class="eyebrow"><a href={href('practice')}>Practice</a> / ATAR Notes</div>
     <h1>Add an ATAR Notes topic test</h1>
+    {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
       A topic test covers one subtopic, so pick its skill once and every question you paste joins it. Screenshot each
       question with <kbd>Windows</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> and press <kbd>Ctrl</kbd> + <kbd>V</kbd> here.
@@ -127,7 +146,13 @@
   {#if result}
     <div class="notice">
       Saved {plural(result.added, 'question')} to <a href={href('practice', 'skill', result.skill.id)}>{result.skill.name}</a>.
-      Paste the next test whenever you are ready.
+      {#if task}
+        Linked to the homework "{task.title}".
+        {#if task.required}<a href={href('practice', 'run', 'task', task.id)}>Do these questions now</a> or
+          <a href={href('planner', 'task', task.id)}>go back to the homework</a>.{:else}<a href={href('planner', 'task', task.id)}>Back to the homework</a>.{/if}
+      {:else}
+        Paste the next test whenever you are ready.
+      {/if}
     </div>
   {/if}
   {#if error}<div class="notice warn">{error}</div>{/if}
