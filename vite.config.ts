@@ -25,7 +25,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,mjs,css,html,svg,woff2,wasm}'],
         navigateFallback: 'index.html',
         // These go to the server: the Google sign-in, the API and the phone page.
-        navigateFallbackDenylist: [/^\/auth\//, /^\/api\//, /^\/add/],
+        navigateFallbackDenylist: [/^\/auth\//, /^\/api\//, /^\/add/, /^\/privacy/],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
