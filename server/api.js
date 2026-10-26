@@ -41,6 +41,7 @@ export function cleanInboxTask(body, now = Date.now()) {
     due: body.due,
     minutes: Number.isFinite(minutes) ? Math.max(5, Math.min(600, minutes)) : 20,
     required: body.required !== false,
+    study: body.study === 'flashcards' ? 'flashcards' : 'desk',
     notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '',
     added: now,
   };

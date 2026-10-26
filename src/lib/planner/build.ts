@@ -3,12 +3,14 @@
 // started, finished or skipped stays where it is.
 //
 // 1. Bus windows get your due flashcards (never less than 10 minutes).
-// 2. Desk windows get required homework, due soonest first.
+// 2. Desk windows get required homework, due soonest first. Homework marked
+//    as flashcards goes on the bus (or in a study period) first; desk study
+//    never goes on the bus.
 // 3. Desk time left over goes to problems: test prep when an assessment is
 //    close, otherwise the subject that needs it most.
 // 4. Flexible windows only get optional things, so skipping one costs nothing.
 // 5. Study periods at school get revision: flashcards the bus didn't cover,
-//    then problems or test prep. Never homework.
+//    then problems or test prep. Never desk homework.
 
 import type { Availability, DayPlan, PlanItem, StudyWindow, Task, TestPlan } from '../types';
 import { addDays, daysBetween } from './dates';
@@ -20,8 +22,6 @@ export const MIN_FLASHCARDS = 10;
 export const MIN_SLICE = 10;
 /** Longest problem block in one go; a longer window is split between two subjects. */
 export const MAX_PROBLEMS = 50;
-/** Class work this short can go on the bus home when the desk is full. */
-export const LIGHT_TASK = 20;
 /** Window id for items added with "I've got 20 more minutes". */
 export const EXTRA_WINDOW = 'extra';
 
@@ -167,20 +167,14 @@ function buildDay(
   for (const t of required) {
     let need = left(t);
     if (need <= 0) continue;
-    for (const w of desk) {
+    // Flashcard homework fills the bus and study periods before it takes desk time.
+    const places = t.study === 'flashcards' ? [...bus, ...school, ...desk] : desk;
+    for (const w of places) {
       if (need <= 0) break;
       const take = Math.min(need, free[w.id]);
       if (take >= Math.min(need, MIN_SLICE)) {
         add(w, { kind: 'homework', minutes: take, taskId: t.id, subjects: t.subject ? [t.subject] : undefined });
         need -= take;
-      }
-    }
-    // Light homework can ride the bus home when the desk is full.
-    if (need > 0 && need <= LIGHT_TASK && (t.type === 'classwork' || t.type === 'other')) {
-      const w = [...bus].reverse().find((b) => free[b.id] >= need);
-      if (w) {
-        add(w, { kind: 'homework', minutes: need, taskId: t.id, subjects: t.subject ? [t.subject] : undefined });
-        need = 0;
       }
     }
   }
@@ -218,12 +212,18 @@ function buildDay(
   const optional = openTasks(input.tasks)
     .filter((t) => !t.required)
     .sort((a, b) => a.due.localeCompare(b.due) || a.created - b.created);
-  for (const w of flexible) {
-    for (const t of optional) {
+  const addOptional = (w: StudyWindow, list: Task[]) => {
+    for (const t of list) {
       const need = left(t);
       if (need <= 0 || free[w.id] < Math.min(need, MIN_SLICE)) continue;
       add(w, { kind: 'homework', minutes: Math.min(need, free[w.id]), taskId: t.id, optional: true, subjects: t.subject ? [t.subject] : undefined });
     }
+  };
+  // Optional flashcard homework can use bus time the due cards left free.
+  const optionalCards = optional.filter((t) => t.study === 'flashcards');
+  for (const w of bus) addOptional(w, optionalCards);
+  for (const w of flexible) {
+    addOptional(w, optional);
     if (free[w.id] >= MIN_SLICE && input.problemSubjects.length) {
       const subject = input.problemSubjects.find((s) => !used.has(s)) ?? input.problemSubjects[0];
       add(w, { kind: 'problems', minutes: free[w.id], subjects: [subject], optional: true });

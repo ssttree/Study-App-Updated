@@ -65,6 +65,7 @@ interface InboxItem {
   due: string;
   minutes: number;
   required: boolean;
+  study?: Task['study'];
   notes: string;
   added: number;
 }
@@ -80,6 +81,7 @@ export function taskFromInbox(item: InboxItem): Task {
     minutes: item.minutes,
     spent: 0,
     required: item.required,
+    study: item.study === 'flashcards' ? 'flashcards' : 'desk',
     status: 'open',
     notes: item.notes,
     carryOvers: 0,

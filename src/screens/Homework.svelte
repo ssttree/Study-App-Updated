@@ -76,7 +76,15 @@
 
   <section class="panel add">
     <QuickAdd {today} onadded={added} />
-    <a class="small more" href={href('planner', 'task', 'new')}>More options (notes, PDF, assignment milestones)</a>
+    {#if justAdded}
+      {@const fresh = tasks.find((t) => t.id === justAdded)}
+      {#if fresh}
+        <p class="small added">
+          Added "{fresh.title}". <a href={href('planner', 'task', fresh.id)}>Add worksheets or a PDF to it</a>
+        </p>
+      {/if}
+    {/if}
+    <a class="small more" href={href('planner', 'task', 'new')}>More options (desk or flashcards, SmarterEd and ATAR Notes questions, PDFs, notes)</a>
   </section>
 
   {#each groups as g (g.name)}
@@ -89,18 +97,16 @@
           <span class="what">
             <a class="title" href={href('planner', 'task', t.id)}>{t.title}</a>
             <span class="muted small">
-              {[t.subject ? shortSubject(t.subject) : '', a ? `${a.name} milestone` : '', t.type === 'smartered' ? 'SmarterEd set' : '']
+              {[t.subject ? shortSubject(t.subject) : '', a ? `${a.name} milestone` : '', t.type === 'smartered' ? 'SmarterEd set' : '', t.study === 'flashcards' ? 'flashcards' : '']
                 .filter(Boolean)
                 .join(' · ')}
             </span>
           </span>
           {#if t.carryOvers > 0}<span class="tag">carried over{t.carryOvers > 1 ? ` ×${t.carryOvers}` : ''}</span>{/if}
-          {#if t.type === 'smartered'}
-            {#if taskSkillIds(t).length}
-              <a class="btn small" href={href('practice', 'run', 'task', t.id)}>Do questions</a>
-            {:else}
-              <a class="btn small" href={href('practice', 'import', 'task', t.id)}>Add the PDF</a>
-            {/if}
+          {#if taskSkillIds(t).length}
+            <a class="btn small" href={href('practice', 'run', 'task', t.id)}>Do questions</a>
+          {:else if t.type === 'smartered'}
+            <a class="btn small" href={href('practice', 'import', 'task', t.id)}>Add the PDF</a>
           {/if}
           <span class="mono small due" class:late={t.due < today}>{dueLabel(t.due, today)}</span>
           <span class="mono small muted mins">{remaining(t)} min</span>
@@ -128,6 +134,9 @@
 </main>
 
 <style>
+  .added {
+    margin: 0;
+  }
   .head {
     display: flex;
     flex-direction: column;

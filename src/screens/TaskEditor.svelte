@@ -40,6 +40,7 @@
         due: addDays(today, 1),
         minutes: 20,
         required: true,
+        study: 'desk',
         found: { subject: false, due: false, minutes: false, type: false, optional: false },
       });
       // Coming from an assignment's page: start as one of its milestones.
@@ -80,18 +81,29 @@
     await persist();
   }
 
-  async function save() {
-    if (!task) return;
+  /** Checks and saves the task. False when something is missing. */
+  async function store(): Promise<boolean> {
+    if (!task) return false;
     error = '';
-    if (!task.title.trim()) return void (error = 'Give it a name, like "Finish Q5 to 10".');
-    if (!task.due) return void (error = 'Pick a due date.');
+    if (!task.title.trim()) return (error = 'Give it a name, like "Finish Q5 to 10".'), false;
+    if (!task.due) return (error = 'Pick a due date.'), false;
     const clean: Task = {
       ...$state.snapshot(task),
       title: task.title.trim(),
       minutes: Math.max(5, Math.round(Number(task.minutes) || 20)),
     };
     await saveTask(clean);
-    go('planner', 'homework');
+    return true;
+  }
+
+  async function save() {
+    if (await store()) go('planner', 'homework');
+  }
+
+  /** Adds questions from SmarterEd PDFs or an ATAR Notes test. New homework is saved first so they link to it. */
+  async function addQuestions(from: 'import' | 'atar') {
+    if (!task || !(await store())) return;
+    go('practice', from, 'task', task.id);
   }
 
   async function remove() {
@@ -182,6 +194,16 @@
           {#each TYPES as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
         </select>
       </label>
+      <div class="field">
+        <span>Where can you do it?</span>
+        <div class="picks" role="group" aria-label="Where can you do it">
+          <button class="btn small" class:on={task.study !== 'flashcards'} aria-pressed={task.study !== 'flashcards'} onclick={() => task && (task.study = 'desk')}>Desk study</button>
+          <button class="btn small" class:on={task.study === 'flashcards'} aria-pressed={task.study === 'flashcards'} onclick={() => task && (task.study = 'flashcards')}>Flashcards</button>
+        </div>
+        <span class="small">
+          {task.study === 'flashcards' ? 'Can go on the bus or in a study period.' : 'Only planned at a desk, never on the bus.'}
+        </span>
+      </div>
       <label class="field">Due<input type="date" bind:value={task.due} onchange={() => task && (task.carryOvers = 0)} /></label>
       <div class="field">
         <span>Time it should take (minutes)</span>
@@ -210,51 +232,49 @@
     </section>
 
     <section class="panel pdf">
-      {#if task.type === 'smartered'}
-        <h2>SmarterEd questions</h2>
-        <p class="muted small">
-          Add the worksheet PDFs (as many as you like). The app reads each one: questions it has already are just linked,
-          and new ones are cut out like a practice import. Or pick a set that's already in the app.
-          {task.required ? '' : 'Since it is optional, the sets join your skill pool and come up in your daily mix.'}
-        </p>
-        {#each linked as k (k.id)}
-          <div class="file">
-            <a class="grow" href={href('practice', 'skill', k.id)}>{k.name}</a>
-            <button class="btn small" onclick={() => unlinkSkill(k.id)}>Unlink</button>
-          </div>
-        {/each}
-        <div class="actions">
-          {#if linked.length}<a class="btn primary" href={href('practice', 'run', 'task', task.id)}>Do these questions</a>{/if}
-          {#if isNew}
-            <span class="muted small">Save it first to add PDFs.</span>
-          {:else}
-            <a class="btn" href={href('practice', 'import', 'task', task.id)}>{linked.length ? 'Add more PDFs' : 'Add the PDFs'}</a>
-          {/if}
+      <h2>Practice questions</h2>
+      <p class="muted small">
+        Add SmarterEd worksheet PDFs or an ATAR Notes topic test, the same way as on the Practice page. Questions the app
+        already has are just linked, and new ones are cut out and saved to your skills. Doing them in a problem session
+        ticks this homework off.
+        {task.required ? '' : 'Since it is optional, the questions join your skill pool and come up in your daily mix.'}
+      </p>
+      {#each linked as k (k.id)}
+        <div class="file">
+          <a class="grow" href={href('practice', 'skill', k.id)}>{k.name}</a>
+          <button class="btn small" onclick={() => unlinkSkill(k.id)}>Unlink</button>
         </div>
-        {#if linkable.length}
-          <div class="pick">
-            <select bind:value={pickSkill} aria-label="Set already in the app">
-              <option value="">Pick a set already in the app...</option>
-              {#each linkable as k (k.id)}<option value={k.id}>{k.subject === task.subject ? '' : `${k.subject}: `}{k.name}</option>{/each}
-            </select>
-            <button class="btn small" onclick={linkSkill} disabled={!pickSkill}>Link</button>
-          </div>
-        {/if}
-      {:else}
-        <h2>Attached PDFs</h2>
-        {#each files as f (f.id)}
-          <div class="file">
-            <button class="linkish grow" onclick={() => openPdf(f.id)}>{f.name}</button>
-            <button class="btn small" onclick={() => removePdf(f.id)}>Remove</button>
-          </div>
-        {/each}
-        <div>
-          <label class="btn">
-            {pdfBusy ? 'Saving...' : files.length ? 'Add more PDFs' : 'Attach PDFs'}
-            <input class="sr-only" type="file" accept="application/pdf" multiple onchange={attach} />
-          </label>
+      {/each}
+      <div class="actions">
+        {#if linked.length && !isNew}<a class="btn primary" href={href('practice', 'run', 'task', task.id)}>Do these questions</a>{/if}
+        <button class="btn" onclick={() => addQuestions('import')}>{linked.length ? 'Add more SmarterEd PDFs' : 'Add SmarterEd PDFs'}</button>
+        <button class="btn" onclick={() => addQuestions('atar')}>Add an ATAR Notes test</button>
+      </div>
+      {#if isNew}<p class="muted small">This saves the homework first, then opens the import.</p>{/if}
+      {#if linkable.length}
+        <div class="pick">
+          <select bind:value={pickSkill} aria-label="Set already in the app">
+            <option value="">Or pick a set already in the app...</option>
+            {#each linkable as k (k.id)}<option value={k.id}>{k.subject === task.subject ? '' : `${k.subject}: `}{k.name}</option>{/each}
+          </select>
+          <button class="btn small" onclick={linkSkill} disabled={!pickSkill}>Link</button>
         </div>
       {/if}
+
+      <h2 class="gap">Attached PDFs</h2>
+      <p class="muted small">For anything you just need to read or hand in, like a task sheet or a reading.</p>
+      {#each files as f (f.id)}
+        <div class="file">
+          <button class="linkish grow" onclick={() => openPdf(f.id)}>{f.name}</button>
+          <button class="btn small" onclick={() => removePdf(f.id)}>Remove</button>
+        </div>
+      {/each}
+      <div>
+        <label class="btn">
+          {pdfBusy ? 'Saving...' : files.length ? 'Add more PDFs' : 'Attach PDFs'}
+          <input class="sr-only" type="file" accept="application/pdf" multiple onchange={attach} />
+        </label>
+      </div>
     </section>
 
     <div class="actions">
@@ -285,6 +305,9 @@
   h2 {
     font-size: 15px;
     font-weight: 700;
+  }
+  h2.gap {
+    margin-top: 10px;
   }
   .linkish {
     background: none;
