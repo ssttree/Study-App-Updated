@@ -27,7 +27,13 @@ export type Route =
   | { name: 'windows' }
   | { name: 'exams' }
   | { name: 'connect'; result?: string }
-  | { name: 'later'; feature: 'progress' }
+  | { name: 'progress' }
+  | { name: 'progressSubject'; subject: string }
+  | { name: 'progressTopic'; subject: string; topic: string }
+  | { name: 'activity' }
+  | { name: 'marks' }
+  | { name: 'mark'; id: string; assessmentId?: string; year?: 11 }
+  | { name: 'weeklyReview' }
   | { name: 'notFound' };
 
 export function parseHash(hash: string): Route {
@@ -59,7 +65,7 @@ export function parseHash(hash: string): Route {
     case 'planner':
       return plannerRoute(rest);
     case 'progress':
-      return { name: 'later', feature: head };
+      return progressRoute(rest);
     default:
       return { name: 'notFound' };
   }
@@ -84,6 +90,29 @@ function practiceRoute(rest: string[]): Route {
       return { name: 'plan', id: more[0] ?? 'new' };
     case 'run':
       return { name: 'practiceRun', parts: more };
+    default:
+      return { name: 'notFound' };
+  }
+}
+
+function progressRoute(rest: string[]): Route {
+  const [sub, ...more] = rest;
+  switch (sub) {
+    case undefined:
+      return { name: 'progress' };
+    case 'subject':
+      return more[0] ? { name: 'progressSubject', subject: more[0] } : { name: 'progress' };
+    case 'topic':
+      return more[0] && more[1] ? { name: 'progressTopic', subject: more[0], topic: more[1] } : { name: 'progress' };
+    case 'activity':
+      return { name: 'activity' };
+    case 'marks':
+      return { name: 'marks' };
+    case 'mark':
+      if (more[0] === 'new') return { name: 'mark', id: 'new', assessmentId: more[1] && more[1] !== 'y11' ? more[1] : undefined, year: more[1] === 'y11' ? 11 : undefined };
+      return { name: 'mark', id: more[0] ?? 'new' };
+    case 'review':
+      return { name: 'weeklyReview' };
     default:
       return { name: 'notFound' };
   }
