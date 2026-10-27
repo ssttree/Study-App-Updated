@@ -1,6 +1,7 @@
 // Serves the built app (the dist folder) on Railway. Railway sets PORT.
 // The app runs in the browser; the server also keeps the phone's homework
-// inbox and talks to Google Calendar (see server/api.js).
+// inbox, talks to Google Calendar and keeps the synced copy of your data
+// so the phone and other browsers match the laptop (see server/api.js).
 
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -9,10 +10,11 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApi } from './server/api.js';
 import { createStore } from './server/store.js';
+import { createSyncStore } from './server/sync.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), 'dist');
 const port = Number(process.env.PORT) || 3000;
-const api = createApi(createStore());
+const api = createApi(createStore(), createSyncStore());
 
 const types = {
   '.html': 'text/html; charset=utf-8',

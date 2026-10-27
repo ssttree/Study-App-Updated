@@ -28,7 +28,9 @@
   import Windows from './screens/Windows.svelte';
   import Exams from './screens/Exams.svelte';
   import Connect from './screens/Connect.svelte';
-  import { sync } from './lib/sync';
+  import Devices from './screens/Devices.svelte';
+  import Join from './screens/Join.svelte';
+  import { DATA_SYNCED, DATA_SYNC_EVERY, sync } from './lib/sync';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
@@ -41,16 +43,32 @@
   const route = $derived(router.route);
   const key = $derived(route.name === 'plan' && route.from ? `plan:${route.from}` : route.name);
 
-  // Catch up with the server (phone inbox, Google Calendar) now and every 10 minutes while online.
+  // Catch up with the server now, every minute while the app is on screen, when it comes back
+  // online or into view, and when you leave it (so the other devices get what you just did).
   $effect(() => {
     sync();
-    const t = setInterval(() => sync(), 10 * 60_000);
+    const t = setInterval(() => document.visibilityState === 'visible' && sync(), DATA_SYNC_EVERY);
     const online = () => sync();
+    const visible = () => sync();
     window.addEventListener('online', online);
+    document.addEventListener('visibilitychange', visible);
     return () => {
       clearInterval(t);
       window.removeEventListener('online', online);
+      document.removeEventListener('visibilitychange', visible);
     };
+  });
+
+  // Another device's changes arrived: reload screens that only show things. Screens where
+  // you're typing or studying are left alone and pick it up next time they open.
+  const REFRESH = new Set(['today', 'decks', 'deck', 'practice', 'plans', 'skills', 'skill', 'planner', 'homework', 'exams', 'progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'settings']);
+  let dataVersion = $state(0);
+  $effect(() => {
+    const changed = () => {
+      if (REFRESH.has(router.route.name)) dataVersion++;
+    };
+    window.addEventListener(DATA_SYNCED, changed);
+    return () => window.removeEventListener(DATA_SYNCED, changed);
   });
 
   let now = $state(new Date());
@@ -87,10 +105,10 @@
       {/each}
     </nav>
     <span class="clock mono muted">{clock}</span>
-    <a class="settings" class:on={key === 'settings'} href={href('settings')}>Settings</a>
+    <a class="settings" class:on={key === 'settings' || key === 'devices'} href={href('settings')}>Settings</a>
   </header>
 
-  {#key route}
+  {#key [route, dataVersion]}
     {#if route.name === 'today'}
       <Today />
     {:else if route.name === 'decks'}
@@ -131,6 +149,10 @@
       <Connect result={route.result} />
     {:else if route.name === 'settings'}
       <Settings />
+    {:else if route.name === 'devices'}
+      <Devices />
+    {:else if route.name === 'join'}
+      <Join key={route.key} />
     {:else if route.name === 'progress'}
       <Progress />
     {:else if route.name === 'progressSubject'}

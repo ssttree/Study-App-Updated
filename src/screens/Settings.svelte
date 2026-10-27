@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getSettings, saveSettings, listCards, listReviewLogs, listProblems } from '../lib/db';
+  import { getDataSyncState } from '../lib/datasync';
   import { downloadBackup, parseBackup, restoreBackup, type Backup } from '../lib/backup';
   import { plural } from '../lib/load';
   import type { Settings } from '../lib/types';
@@ -12,9 +13,11 @@
   let restoreError = $state('');
   let restoreDone = $state('');
   let storageNote = $state('');
+  let synced = $state(false);
 
   async function load() {
     settings = await getSettings();
+    synced = !!(await getDataSyncState()).lastSync;
     const [cards, logs, problems] = await Promise.all([listCards(), listReviewLogs(), listProblems()]);
     counts = { cards: cards.length, reviews: logs.length, problems: problems.length };
     const est = await navigator.storage?.estimate?.();
@@ -129,7 +132,7 @@
     <section class="block">
       <h2>Backup and restore</h2>
       <p class="muted hint">
-        Your {plural(counts.cards, 'card')}, {plural(counts.reviews, 'review')} and {plural(counts.problems, 'practice question')} live only in this browser. A backup
+        Your {plural(counts.cards, 'card')}, {plural(counts.reviews, 'review')} and {plural(counts.problems, 'practice question')} are saved in this browser{synced ? ' and synced to your server' : ''}. A backup
         is one file with everything in it. Keep it somewhere safe, like Google Drive. {lastBackupText(settings)}
       </p>
       <div class="row-actions">
@@ -166,10 +169,18 @@
     </section>
 
     <section class="block">
-      <h2>Phone and Google Calendar</h2>
+      <h2>Sync and devices</h2>
       <p class="muted hint">
-        Add homework from your phone, and put due dates and study blocks in Google Calendar.
-        <a href={href('planner', 'connect')}>Set them up</a>
+        Use the app on your phone and in every Zen space, with the same cards, practice and plans everywhere.
+        <a href={href('settings', 'sync')}>Set up sync</a>
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>Google Calendar</h2>
+      <p class="muted hint">
+        Put due dates and study blocks in Google Calendar, and plan around work shifts.
+        <a href={href('planner', 'connect')}>Set it up</a>
       </p>
     </section>
   {/if}

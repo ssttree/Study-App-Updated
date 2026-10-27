@@ -334,7 +334,7 @@ export interface StoredImage {
   height: number;
 }
 
-/** Phone inbox and Google Calendar settings. Kept on this laptop only, never in backups. */
+/** The app key, phone inbox and Google Calendar settings. Kept on each device, never synced or in backups. */
 export interface SyncConfig {
   /** The APP_KEY set on the Railway server. */
   key: string;
@@ -344,6 +344,12 @@ export interface SyncConfig {
   /** Write due dates and study blocks to the app's own two calendars. */
   pushDue: boolean;
   pushBlocks: boolean;
+  /**
+   * Whether this device reads and writes Google Calendar. Only one should,
+   * usually the laptop; the others get the calendar copy through sync.
+   * Missing means yes, for the laptop that was set up before sync existed.
+   */
+  google?: boolean;
   connected?: boolean;
   lastSync?: number;
   lastError?: string;

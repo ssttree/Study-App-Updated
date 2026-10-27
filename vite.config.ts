@@ -11,18 +11,28 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      // Lets phones (and Chrome on the laptop) install it as an app with its own icon and window.
       manifest: {
+        id: '/',
         name: 'Study App',
         short_name: 'Study',
         description: 'Flashcards and study planning built on spaced repetition.',
+        start_url: '/',
+        scope: '/',
         theme_color: '#121316',
         background_color: '#121316',
         display: 'standalone',
-        icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }],
+        icons: [
+          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+          // Full bleed, so Android can crop it to any shape.
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,mjs,css,html,svg,woff2,wasm}'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,wasm}'],
         navigateFallback: 'index.html',
         // These go to the server: the Google sign-in, the API and the phone page.
         navigateFallbackDenylist: [/^\/auth\//, /^\/api\//, /^\/add/, /^\/privacy/],

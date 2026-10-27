@@ -45,6 +45,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Installed on a phone, the app runs edge to edge: keep clear of the notch and home bar. */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-tap-highlight-color: transparent;
+}
+
 a {
   color: var(--accent);
 }

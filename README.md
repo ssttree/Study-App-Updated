@@ -99,6 +99,11 @@ works with no internet once it has been opened once.
   weighting. Assignments get milestones (each one a homework task) and warn when one slips. Afterwards, enter
   your mark and tick skills that went badly; they come straight back.
 
+- **Sync and phone install** (Settings, Sync): the laptop, the phone and every Zen space keep their own
+  full copy and work offline. Whenever one is online it sends what changed and collects what changed
+  elsewhere, through the Railway server: every minute while the app is open, and when you leave it. Open
+  the "add a device" link (or its QR code) once on each new device or Zen space. The app installs on a
+  phone's home screen (Share, Add to Home Screen on iPhone; Install app in Chrome on Android).
 - **Phone quick add** (Planner, Phone and Google): a tiny page for your phone that only adds homework.
   It sends each task to the Railway server, and the laptop collects it next time it's online. With no
   signal, tasks wait on the phone and send themselves later. With your timetable connected, the lesson on
@@ -158,9 +163,10 @@ npm start        # serves the finished app (this is what Railway runs)
 Open that address once on your laptop while online. After that it works offline.
 Cards stay in that browser on that laptop, so keep backups (Settings > Download backup).
 
-### Phone quick add and Google Calendar
+### Sync, phone quick add and Google Calendar
 
-These need the server to keep a little data (the homework inbox and your Google sign-in), so:
+These need the server to keep data (the synced copy of everything, the homework inbox and your Google
+sign-in), so:
 
 1. In the Railway service, right click the canvas (or press Ctrl K) and add a **Volume**, mounted at `/data`.
 2. Under **Variables**, add:
@@ -213,8 +219,9 @@ src/
   components/        pieces shared by screens
 tests/               automatic tests (Vitest)
 server.js            file server for Railway, plus the API below
-server/              api.js (inbox, Google routes), google.js (sign-in and calendar
-                     calls), store.js (one JSON file in DATA_DIR)
+server/              api.js (inbox, sync, Google routes), google.js (sign-in and calendar
+                     calls), store.js (one JSON file in DATA_DIR), sync.js (the synced
+                     copy, SQLite file sync.db in DATA_DIR; needs Node 22.13+)
 ```
 
 Later phases add their own records to `types.ts`, new stores in `db.ts` (by

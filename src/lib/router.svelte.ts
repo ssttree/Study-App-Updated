@@ -13,6 +13,8 @@ export type Route =
   | { name: 'newCard'; deckId: string }
   | { name: 'import' }
   | { name: 'settings' }
+  | { name: 'devices' }
+  | { name: 'join'; key?: string }
   | { name: 'practice' }
   | { name: 'skills'; subject?: string }
   | { name: 'skill'; id: string }
@@ -59,7 +61,10 @@ export function parseHash(hash: string): Route {
       if (rest[0] === 'new') return { name: 'newCard', deckId: rest[1] ?? '' };
       return rest[0] ? { name: 'card', id: rest[0] } : { name: 'notFound' };
     case 'settings':
-      return { name: 'settings' };
+      return rest[0] === 'sync' ? { name: 'devices' } : { name: 'settings' };
+    // The link that sets up another device (it carries the app key).
+    case 'join':
+      return { name: 'join', key: rest[0] };
     case 'practice':
       return practiceRoute(rest);
     case 'planner':

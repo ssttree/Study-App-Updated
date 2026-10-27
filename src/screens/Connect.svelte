@@ -55,6 +55,8 @@
     if (!config) return;
     busy = true;
     try {
+      // Picking calendars here makes this the device that talks to Google.
+      config.google = true;
       await saveSyncConfig($state.snapshot(config));
       // The server needs the timetable too, for the phone's subject guess.
       await api(config.key, '/api/google/settings', { method: 'POST', body: { timetableCalendarId: config.timetableCalendarId || null } });
@@ -126,8 +128,8 @@
     <section class="panel block" class:off={!status}>
       <h2>2. Your phone</h2>
       <p class="muted small">
-        Open this link on your phone, then use Share, Add to Home Screen. It's a tiny page that only adds homework, for
-        the end of the day. The laptop collects it next time it's online.
+        The whole app works on your phone now: see <a href={href('settings', 'sync')}>Sync and devices</a>. This
+        link is still here for the tiny quick add page, if you only want to jot down homework at the end of the day.
       </p>
       {#if phoneLink && status}
         <div class="line">
@@ -151,6 +153,9 @@
           calendars you pick. It can't change your other calendars.
         </p>
         <div><a class="btn primary" href="/auth/google/start?k={encodeURIComponent(config.key)}">Connect Google Calendar</a></div>
+      {:else if status && config.google === false}
+        <p class="muted small">Google is connected, and another of your devices reads and writes it. Its calendar copy reaches this one through sync.</p>
+        <div><button class="btn" onclick={() => config && ((config.google = true), saveSyncConfig($state.snapshot(config)))}>Use this device for Google instead</button></div>
       {:else if status}
         <label class="field">
           Work calendar <span class="muted">(shifts take out study windows, with 30 min to get there)</span>
