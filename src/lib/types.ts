@@ -387,6 +387,8 @@ export interface Mark {
   /** Rank in the class or cohort, if known, e.g. 6 (of 24). */
   rank?: number;
   rankOf?: number;
+  /** Tied rank, written "=5". */
+  rankTied?: boolean;
   /** 11 for the Year 11 baseline, 12 for this year. */
   year: 11 | 12;
   /** Progress topics it covered, for recall against result. */

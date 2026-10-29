@@ -11,6 +11,7 @@
   import ProgressTopic from './screens/ProgressTopic.svelte';
   import Activity from './screens/Activity.svelte';
   import Marks from './screens/Marks.svelte';
+  import MarksImport from './screens/MarksImport.svelte';
   import MarkEditor from './screens/MarkEditor.svelte';
   import WeeklyReview from './screens/WeeklyReview.svelte';
   import CustomStudy from './screens/CustomStudy.svelte';
@@ -37,7 +38,7 @@
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
     { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'connect', 'plan:planner'] },
-    { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'mark'] },
+    { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'marksImport', 'mark'] },
   ];
 
   const route = $derived(router.route);
@@ -163,6 +164,8 @@
       <Activity />
     {:else if route.name === 'marks'}
       <Marks />
+    {:else if route.name === 'marksImport'}
+      <MarksImport />
     {:else if route.name === 'mark'}
       <MarkEditor id={route.id} assessmentId={route.assessmentId} year={route.year} />
     {:else}

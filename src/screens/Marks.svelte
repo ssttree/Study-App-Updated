@@ -4,6 +4,7 @@
   import { PROGRESS_SUBJECTS, pct } from '../lib/progress/recall';
   import { shortSubject } from '../lib/practice/load';
   import { dateKey, dayLabel } from '../lib/planner/dates';
+  import { rankText as rankOnly } from '../lib/progress/marktext';
   import type { Mark } from '../lib/types';
   import ProgressTabs from '../components/ProgressTabs.svelte';
 
@@ -30,8 +31,8 @@
     return date.slice(0, 4) === today.slice(0, 4) ? label : `${label} ${date.slice(0, 4)}`;
   }
 
-  function rankText(m: Pick<Mark, 'rank' | 'rankOf'>): string {
-    return m.rank ? ` · rank ${m.rank}${m.rankOf ? '/' + m.rankOf : ''}` : '';
+  function rankText(m: Pick<Mark, 'rank' | 'rankOf' | 'rankTied'>): string {
+    return m.rank ? ` · rank ${rankOnly(m)}` : '';
   }
 </script>
 
@@ -48,6 +49,7 @@
     <div class="actions">
       <a class="btn primary" href={href('progress', 'mark', 'new')}>Add a mark</a>
       <a class="btn" href={href('progress', 'mark', 'new', 'y11')}>Add a Year 11 task</a>
+      <a class="btn" href={href('progress', 'marks', 'import')}>Upload Year 11 marks (.md)</a>
     </div>
 
     {#if waiting.length}
@@ -86,7 +88,10 @@
           </table>
         </div>
       {:else}
-        <p class="muted">Add your Year 11 tasks with their marks and ranks to set a baseline for each subject.</p>
+        <p class="muted">
+          Add your Year 11 tasks with their marks and ranks to set a baseline for each subject. To add them all at once,
+          <a href={href('progress', 'marks', 'import')}>upload a Markdown file</a>.
+        </p>
       {/if}
     </section>
 

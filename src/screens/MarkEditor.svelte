@@ -4,6 +4,7 @@
   import { loadProgress, subjectTopics, type ProgressData } from '../lib/progress/load';
   import { PROGRESS_SUBJECTS, scopeOf, topicsOf } from '../lib/progress/recall';
   import { dateKey } from '../lib/planner/dates';
+  import { markText, parseMarkText, parseRankText, rankText } from '../lib/progress/marktext';
   import type { Mark } from '../lib/types';
 
   let { id, assessmentId, year: startYear }: { id: string; assessmentId?: string; year?: 11 } = $props();
@@ -14,10 +15,10 @@
   let subject = $state<string>(PROGRESS_SUBJECTS[0]);
   let name = $state('');
   let date = $state('');
-  let mark = $state<number | ''>('');
-  let outOf = $state<number | ''>('');
-  let rank = $state<number | ''>('');
-  let rankOf = $state<number | ''>('');
+  /** "58/60" */
+  let mark = $state('');
+  /** "=5", optional */
+  let rank = $state('');
   let year = $state<11 | 12>(12);
   let topics = $state<string[]>([]);
   let linked = $state<string | undefined>(undefined);
@@ -31,10 +32,8 @@
     existing = id === 'new' ? undefined : d.marks.find((m) => m.id === id);
     if (existing) {
       ({ subject, name, date, year } = existing);
-      mark = existing.mark;
-      outOf = existing.outOf;
-      rank = existing.rank ?? '';
-      rankOf = existing.rankOf ?? '';
+      mark = markText(existing);
+      rank = rankText(existing);
       topics = [...existing.topics];
       linked = existing.assessmentId;
       return;
@@ -46,8 +45,8 @@
       subject = plan.subject;
       name = plan.name;
       date = dateKey(plan.date);
-      mark = plan.mark ?? '';
-      outOf = plan.outOf ?? '';
+      // The total is usually known before the mark, so "/60" is there to type in front of.
+      mark = plan.mark !== undefined && plan.outOf ? `${plan.mark}/${plan.outOf}` : plan.outOf ? `/${plan.outOf}` : '';
       const scope = scopeOf(plan, d.units, d.skills).filter((u) => u.subject === plan.subject);
       topics = plan.skillIds.length || plan.deckIds?.length ? topicsOf(scope).map((t) => t.name) : [];
     }
@@ -60,15 +59,15 @@
     topics = topics.includes(t) ? topics.filter((x) => x !== t) : [...topics, t];
   }
 
-  const num = (v: number | '') => (v === '' || v === null || !Number.isFinite(Number(v)) ? undefined : Number(v));
-
   async function save() {
     error = '';
-    const m = num(mark);
-    const o = num(outOf);
+    const parsed = parseMarkText(mark);
+    const r = rank.trim() ? parseRankText(rank) : null;
     if (!name.trim()) return (error = 'Give the task a name, like "Term 1 test".');
-    if (m === undefined || !o || o <= 0) return (error = 'Enter the mark and what it was out of.');
+    if (!parsed || parsed.outOf <= 0) return (error = 'Write the mark like 58/60.');
+    const { mark: m, outOf: o } = parsed;
     if (m > o) return (error = 'The mark is more than the total.');
+    if (rank.trim() && !r) return (error = 'Write the rank like 5, or =5 if you tied.');
     if (!date) return (error = 'Pick the date.');
     const record: Mark = {
       id: existing?.id ?? newId(),
@@ -77,8 +76,9 @@
       date,
       mark: m,
       outOf: o,
-      rank: num(rank),
-      rankOf: num(rankOf),
+      rank: r?.rank,
+      rankOf: r?.rankOf,
+      rankTied: r?.tied || undefined,
       year,
       topics: topics.filter((t) => options.includes(t)),
       assessmentId: linked,
@@ -125,11 +125,11 @@
         </label>
         <label class="field wide">Task<input type="text" bind:value={name} placeholder="Term 1 test" /></label>
         <label class="field">Date<input type="date" bind:value={date} /></label>
-        <div></div>
-        <label class="field">Mark<input type="number" min="0" step="any" bind:value={mark} /></label>
-        <label class="field">Out of<input type="number" min="0" step="any" bind:value={outOf} /></label>
-        <label class="field">Rank (optional)<input type="number" min="1" bind:value={rank} /></label>
-        <label class="field">Out of how many (optional)<input type="number" min="1" bind:value={rankOf} /></label>
+        <label class="field">Mark<input type="text" inputmode="decimal" bind:value={mark} placeholder="58/60" autocomplete="off" /></label>
+        <label class="field">
+          Rank (optional)
+          <input type="text" bind:value={rank} placeholder="=5" autocomplete="off" />
+        </label>
       </div>
 
       {#if year === 12}
