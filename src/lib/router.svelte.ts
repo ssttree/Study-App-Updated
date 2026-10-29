@@ -35,6 +35,7 @@ export type Route =
   | { name: 'progressTopic'; subject: string; topic: string }
   | { name: 'activity' }
   | { name: 'marks' }
+  | { name: 'marksImport' }
   | { name: 'mark'; id: string; assessmentId?: string; year?: 11 }
   | { name: 'weeklyReview' }
   | { name: 'notFound' };
@@ -115,7 +116,7 @@ function progressRoute(rest: string[]): Route {
     case 'activity':
       return { name: 'activity' };
     case 'marks':
-      return { name: 'marks' };
+      return more[0] === 'import' ? { name: 'marksImport' } : { name: 'marks' };
     case 'mark':
       if (more[0] === 'new') return { name: 'mark', id: 'new', assessmentId: more[1] && more[1] !== 'y11' ? more[1] : undefined, year: more[1] === 'y11' ? 11 : undefined };
       return { name: 'mark', id: more[0] ?? 'new' };
