@@ -352,7 +352,7 @@ function storesOf(tx: { objectStore(name: 'problems' | 'attempts' | 'images'): u
 
 async function deleteProblemInTx(stores: ProblemStores, p: Problem): Promise<void> {
   for (const key of await stores.attempts.index('problemId').getAllKeys(p.id)) await stores.attempts.delete(key);
-  await stores.images.delete(p.questionImage);
+  if (p.questionImage) await stores.images.delete(p.questionImage);
   if (p.solutionImage) await stores.images.delete(p.solutionImage);
   await stores.problems.delete(p.id);
 }

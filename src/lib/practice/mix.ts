@@ -7,6 +7,7 @@ import { newId } from '../db';
 import { emptyState, fromFsrs, toFsrs, type RatingValue } from '../scheduler';
 import type { Attempt, Problem, Settings, Skill, TestPlan } from '../types';
 import { rampOf } from '../planner/assessments';
+import { plansAnswers } from './subjects';
 
 const DAY = 86_400_000;
 /** A question can come back once this long has passed since you last did it. */
@@ -41,9 +42,19 @@ export function newSkill(fields: Pick<Skill, 'subject' | 'name'> & Partial<Skill
   };
 }
 
-/** SmarterEd's guide: about 1.5 minutes per mark, plus half a minute to mark it. */
-export function costMinutes(problem: Pick<Problem, 'marks'>): number {
-  return (problem.marks > 0 ? problem.marks : 2) * 1.5 + 0.5;
+/**
+ * Minutes to spend on a question, before half a minute to mark it. SmarterEd's
+ * guide is about 1.5 minutes per mark. In Business Studies long answers are
+ * planned in dot points, not written out, so nothing goes past 5 minutes.
+ */
+export function workMinutes(problem: Pick<Problem, 'marks'>, subject = ''): number {
+  const minutes = (problem.marks > 0 ? problem.marks : 2) * 1.5;
+  return plansAnswers(subject) ? Math.min(minutes, 5) : minutes;
+}
+
+/** Time a question takes in a block: working it plus half a minute to mark it. */
+export function costMinutes(problem: Pick<Problem, 'marks'>, subject = ''): number {
+  return workMinutes(problem, subject) + 0.5;
 }
 
 /** Skills that can be practised: switched on and holding at least one question. */
@@ -82,10 +93,11 @@ export function pickProblem(
   minutesLeft = Infinity,
   rng: () => number = Math.random,
   exclude: Set<string> = new Set(),
+  subject = '',
 ): Problem | null {
   const options = pool.filter((p) => !exclude.has(p.id));
   if (!options.length) return null;
-  const fits = options.filter((p) => costMinutes(p) <= minutesLeft);
+  const fits = options.filter((p) => costMinutes(p, subject) <= minutesLeft);
   const from = fits.length ? fits : options;
   const unseen = from.filter((p) => !seen.has(p.id));
   if (unseen.length) return unseen[Math.floor(rng() * unseen.length)];
@@ -155,14 +167,14 @@ export function buildDailyMix(data: PracticeData, opts: MixOptions): MixItem[] {
   if (!items.length) items = fill(first(weak), data, opts.minutes, now, rng, skills);
   // Few skills so far (early in the year): go round them again with different questions to fill the block.
   const used = new Set(items.map((i) => i.problem.id));
-  let left = opts.minutes - items.reduce((m, i) => m + costMinutes(i.problem), 0);
+  let left = opts.minutes - items.reduce((m, i) => m + costMinutes(i.problem, i.skill.subject), 0);
   const again = [...new Map([...items.map((i) => i.skill), ...first(weak)].map((s) => [s.id, s])).values()];
   for (let round = 0; round < 5 && left >= 2; round++) {
     const more = fill(again, data, left, now, rng, skills, used, false, false);
     if (!more.length) break;
     for (const it of more) {
       used.add(it.problem.id);
-      left -= costMinutes(it.problem);
+      left -= costMinutes(it.problem, it.skill.subject);
     }
     items = [...items, ...more];
   }
@@ -189,7 +201,7 @@ export function buildTestPrep(data: PracticeData, plan: TestPlan, minutes: numbe
     const roundItems = fill(order, data, left, now, rng, skills, used, false, round === 0);
     for (const it of roundItems) {
       used.add(it.problem.id);
-      left -= costMinutes(it.problem);
+      left -= costMinutes(it.problem, it.skill.subject);
     }
     items.push(...roundItems);
     if (items.length === before) break;
@@ -207,11 +219,11 @@ export function buildSkillSet(data: PracticeData, skillId: string, minutes: numb
   const used = new Set<string>();
   let left = minutes;
   while (left > 0) {
-    const p = pickProblem(pool, seen, now, left, rng, used);
-    if (!p || (costMinutes(p) > left && items.length)) break;
+    const p = pickProblem(pool, seen, now, left, rng, used, skill.subject);
+    if (!p || (costMinutes(p, skill.subject) > left && items.length)) break;
     items.push({ problem: p, skill });
     used.add(p.id);
-    left -= costMinutes(p);
+    left -= costMinutes(p, skill.subject);
   }
   return items;
 }
@@ -230,9 +242,9 @@ export function buildHomeworkSet(data: PracticeData, skillIds: string[], since: 
     if (!skill) continue;
     const todo = data.problems.filter((p) => p.skillId === id && !tried.has(p.id)).sort((a, b) => a.order - b.order);
     for (const p of todo) {
-      if (costMinutes(p) > left && items.length) return items;
+      if (costMinutes(p, skill.subject) > left && items.length) return items;
       items.push({ problem: p, skill });
-      left -= costMinutes(p);
+      left -= costMinutes(p, skill.subject);
     }
   }
   return items.length || !skillIds[0] ? items : buildSkillSet(data, skillIds[0], minutes, now);
@@ -258,9 +270,9 @@ function fill(
   const add = (skill: Skill): boolean => {
     if (used.has(skill.id)) return false;
     const pool = data.problems.filter((p) => p.skillId === skill.id);
-    const p = pickProblem(pool, seen, now, left, rng, exclude);
+    const p = pickProblem(pool, seen, now, left, rng, exclude, skill.subject);
     if (!p) return false;
-    const cost = costMinutes(p);
+    const cost = costMinutes(p, skill.subject);
     if (cost > left && (items.length || !allowOver)) return false;
     used.add(skill.id);
     items.push({ problem: p, skill });

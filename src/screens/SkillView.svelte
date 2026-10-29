@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ProblemImage from '../components/ProblemImage.svelte';
+  import ProblemView from '../components/ProblemView.svelte';
   import { deleteProblem, deleteSkill, moveProblems, saveProblem, saveSkill } from '../lib/db';
   import { loadPractice, relativeDay, type PracticeCollection } from '../lib/practice/load';
   import { newSkill } from '../lib/practice/mix';
@@ -219,19 +219,19 @@
                 marks
               </label>
             </div>
-            <ProblemImage id={p.questionImage} alt="Question {p.label}" small />
+            <ProblemView image={p.questionImage} text={p.questionText} alt="Question {p.label}" small />
             <div class="q-actions">
-              {#if p.solutionImage}
+              {#if p.solutionImage || p.solutionText}
                 <button class="btn small" onclick={() => (open = open === p.id ? null : p.id)}>
                   {open === p.id ? 'Hide solution' : 'Show solution'}
                 </button>
               {:else}
-                <span class="muted small">No worked solution</span>
+                <span class="muted small">No answer saved</span>
               {/if}
               <button class="btn small danger" onclick={() => removeProblem(p)}>Delete</button>
             </div>
-            {#if open === p.id && p.solutionImage}
-              <ProblemImage id={p.solutionImage} alt="Worked solution {p.label}" small />
+            {#if open === p.id && (p.solutionImage || p.solutionText)}
+              <ProblemView image={p.solutionImage} text={p.solutionText} alt="Solution {p.label}" small />
             {/if}
           </article>
         {/each}

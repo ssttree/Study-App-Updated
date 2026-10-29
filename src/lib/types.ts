@@ -137,7 +137,7 @@ export interface Skill {
   updated: number;
 }
 
-export type ProblemSource = 'smartered' | 'atarnotes' | 'snip';
+export type ProblemSource = 'smartered' | 'atarnotes' | 'snip' | 'typed';
 
 export interface Problem {
   id: string;
@@ -153,9 +153,12 @@ export interface Problem {
   mc: boolean;
   /** Correct letter for multiple choice, once known. */
   answerLetter?: string;
-  /** Ids in the images store, kept apart so lists of problems stay light. */
+  /** Ids in the images store, kept apart so lists of problems stay light. Empty for a typed question. */
   questionImage: string;
   solutionImage?: string;
+  /** A typed question and its answer or marking guideline (Markdown with maths), used instead of pictures. */
+  questionText?: string;
+  solutionText?: string;
   /** Position in the worksheet, to keep the original order. */
   order: number;
   created: number;
