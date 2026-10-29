@@ -8,7 +8,7 @@
   import { allKnown, findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
   import { SUBJECTS, taskSkillIds, type Skill, type Task } from '../lib/types';
   import type { AnalysedSheet, DraftPair } from '../lib/practice/worksheet';
-  import type { Picture } from '../lib/practice/pdf';
+  import type { OpenPdf, Picture } from '../lib/practice/pdf';
 
   interface SheetState {
     id: number;
@@ -24,6 +24,11 @@
     /** A pair being fixed by hand, or the next box in snip mode. */
     fixing: { index: number; part: 'question' | 'solution' } | null;
     pendingQuestion: Picture | null;
+    /** Snip mode: a separate PDF holding the answers, like a NESA marking guideline. */
+    answers: OpenPdf | null;
+    answersName: string;
+    /** Last page boxed in each PDF, so switching between them comes back to the same place. */
+    lastPage: { question: number; solution: number };
     /** Questions on this sheet that are in the app already. */
     knownCount: number;
     /** Set when every question is in the app already: the skill they are in. */
@@ -85,6 +90,9 @@
           showAll: false,
           fixing: analysed.smarterEd ? null : { index: -1, part: 'question' },
           pendingQuestion: null,
+          answers: null,
+          answersName: '',
+          lastPage: { question: 0, solution: 0 },
           knownCount,
           knownSkill,
         });
@@ -110,9 +118,42 @@
 
   const needsLook = (p: DraftPair) => p.problems.length > 0;
 
-  function onPicked(sheet: SheetState, picture: Picture) {
+  async function addAnswers(sheet: SheetState, e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const lib = await reader();
+      sheet.answers?.destroy();
+      sheet.answers = await lib.openAnswers(file);
+      sheet.answersName = file.name;
+      sheet.lastPage.solution = 0;
+    } catch (err) {
+      error = `Could not read ${file.name}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  function removeAnswers(sheet: SheetState) {
+    sheet.answers?.destroy();
+    sheet.answers = null;
+    sheet.answersName = '';
+  }
+
+  /** The PDF to box a solution in: the separate answers PDF when there is one. */
+  const solutionPdf = (sheet: SheetState) => sheet.answers ?? sheet.analysed.pdf;
+
+  function destroyAll() {
+    for (const s of sheets) {
+      s.analysed.pdf.destroy();
+      s.answers?.destroy();
+    }
+  }
+
+  function onPicked(sheet: SheetState, picture: Picture, page: number) {
     const f = sheet.fixing;
     if (!f) return;
+    sheet.lastPage[f.part] = page;
     if (f.index >= 0) {
       const pair = sheet.pairs[f.index];
       if (f.part === 'question') pair.question = picture;
@@ -145,6 +186,7 @@
       solution,
       problems: [],
       include: true,
+      skill: '',
     });
     sheet.pendingQuestion = null;
     sheet.fixing = { index: -1, part: 'question' };
@@ -171,11 +213,21 @@
           s.skill === 'new'
             ? ({ kind: 'new', subject: s.subject, name: s.name, topic: s.analysed.sheet.topic, code: s.analysed.sheet.code, dotPoint: s.dotPoint } as const)
             : ({ kind: 'existing', id: s.skill } as const);
-        const result = await saveProblems(choice, drafts, s.analysed.smarterEd ? 'smartered' : 'snip', s.name || s.fileName);
-        out.push({ fileName: s.fileName, result });
+        // A past paper covers many skills: questions given their own skill are saved there.
+        const groups = new Map<string, DraftPair[]>();
+        for (const d of drafts) groups.set(d.skill ?? '', [...(groups.get(d.skill ?? '') ?? []), d]);
+        for (const [skillId, group] of groups) {
+          const result = await saveProblems(
+            skillId ? { kind: 'existing', id: skillId } : choice,
+            group,
+            s.analysed.smarterEd ? 'smartered' : 'snip',
+            s.analysed.smarterEd ? s.name || s.fileName : s.fileName.replace(/\.pdf$/i, ''),
+          );
+          out.push({ fileName: s.fileName, result });
+        }
         skills = await listSkills();
       }
-      for (const s of sheets) s.analysed.pdf.destroy();
+      destroyAll();
       // Homework: link the set to every worksheet's skill. An optional set just joins the skill pool.
       if (task && out[0]) {
         const skillIds = [...new Set([...taskSkillIds(task), ...out.map((r) => r.result.skill.id)])];
@@ -194,7 +246,7 @@
   }
 
   function startOver() {
-    for (const s of sheets) s.analysed.pdf.destroy();
+    destroyAll();
     sheets = [];
     results = [];
     step = 'pick';
@@ -204,7 +256,7 @@
 <main class="page wide">
   <section class="head">
     <div class="eyebrow"><a href={href('practice')}>Practice</a> / Import</div>
-    <h1>Import SmarterEd PDFs</h1>
+    <h1>Import PDFs</h1>
     {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
       Drop in one or more worksheets. The app finds each question and its worked solution and cuts them out as
@@ -236,8 +288,9 @@
       {/if}
     </label>
     <p class="muted small">
-      Other PDFs, like class notes with questions in them, work too: the app shows the pages and you drag a box
-      around each question, then its answer.
+      Other PDFs work too, like a NESA past HSC paper for Business Studies or Engineering Studies, or class notes with
+      questions in them. The app shows the pages and you drag a box around each question, then its answer. If the
+      answers are in a separate PDF, like the marking guidelines, you can add that PDF and box the answers there.
     </p>
   {:else if step === 'review'}
     {#each sheets as s (s.id)}
@@ -295,16 +348,34 @@
           <div class="fix">
             {#if s.fixing.index >= 0}
               <Snipper
-                pdf={s.analysed.pdf}
+                pdf={s.fixing.part === 'solution' ? solutionPdf(s) : s.analysed.pdf}
+                startPage={s.lastPage[s.fixing.part]}
                 prompt={`Question ${s.pairs[s.fixing.index].number}: box the ${s.fixing.part === 'question' ? 'question' : 'worked solution'}.`}
-                onpick={(p) => onPicked(s, p)}
+                onpick={(p, page) => onPicked(s, p, page)}
               />
               <button class="btn small" onclick={() => (s.fixing = null)}>Cancel</button>
             {:else}
+              {#if !s.analysed.smarterEd}
+                <div class="answers small">
+                  {#if s.answers}
+                    <span>Answers come from <strong>{s.answersName}</strong>.</span>
+                    <button class="btn small" onclick={() => removeAnswers(s)}>Use this PDF instead</button>
+                  {:else}
+                    <span class="muted">Answers in a separate PDF, like a NESA marking guideline?</span>
+                    <label class="btn small">
+                      Add the answers PDF
+                      <input class="sr-only" type="file" accept="application/pdf,.pdf" onchange={(e) => addAnswers(s, e)} />
+                    </label>
+                  {/if}
+                </div>
+              {/if}
               <Snipper
-                pdf={s.analysed.pdf}
-                prompt={s.fixing.part === 'question' ? `Question ${s.pairs.length + 1}: box the question.` : `Now box its answer or worked solution.`}
-                onpick={(p) => onPicked(s, p)}
+                pdf={s.fixing.part === 'solution' ? solutionPdf(s) : s.analysed.pdf}
+                startPage={s.lastPage[s.fixing.part]}
+                prompt={s.fixing.part === 'question'
+                  ? `Question ${s.pairs.length + 1}: box the question.`
+                  : `Now box its ${s.answers ? 'marking guideline' : 'answer or worked solution'}.`}
+                onpick={(p, page) => onPicked(s, p, page)}
               />
               <div class="row-actions">
                 {#if s.fixing.part === 'solution'}
@@ -338,6 +409,15 @@
                 </label>
                 <label class="marks mono small"><input type="number" min="1" max="20" bind:value={p.marks} /> marks</label>
                 {#if p.mc}<span class="mono small muted">MC</span>{/if}
+                {#if !s.analysed.smarterEd && subjectSkills.length}
+                  <label class="pair-skill small">
+                    <span class="sr-only">Skill for question {p.number}</span>
+                    <select bind:value={p.skill}>
+                      <option value="">{s.skill === 'new' ? `Skill: ${s.name || 'new skill'}` : 'Same skill as the sheet'}</option>
+                      {#each subjectSkills.filter((k) => k.id !== s.skill) as k (k.id)}<option value={k.id}>{k.name}</option>{/each}
+                    </select>
+                  </label>
+                {/if}
                 {#each p.problems as why (why)}<span class="flag small">{why}</span>{/each}
               </div>
               <div class="sides">
@@ -370,7 +450,7 @@
     <section class="drop panel"><span class="big">Saving...</span><span class="muted mono small">{progress}</span></section>
   {:else if step === 'done'}
     <section class="done">
-      {#each results as r (r.fileName)}
+      {#each results as r, i (i)}
         <div class="row">
           <span class="dot" style:background="var(--accent)"></span>
           <a class="grow" href={href('practice', 'skill', r.result.skill.id)}>{r.result.skill.name}</a>
@@ -465,6 +545,12 @@
   .topic {
     margin: -6px 0 0;
   }
+  .answers {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
   .fix {
     display: flex;
     flex-direction: column;
@@ -514,6 +600,12 @@
   }
   .marks input {
     width: 64px;
+    min-height: 34px;
+    padding: 4px 8px;
+  }
+  .pair-skill select {
+    width: auto;
+    max-width: 320px;
     min-height: 34px;
     padding: 4px 8px;
   }

@@ -20,6 +20,7 @@
   import SkillView from './screens/SkillView.svelte';
   import PdfImport from './screens/PdfImport.svelte';
   import AtarImport from './screens/AtarImport.svelte';
+  import WriteQuestion from './screens/WriteQuestion.svelte';
   import PlanEditor from './screens/PlanEditor.svelte';
   import PracticeRun from './screens/PracticeRun.svelte';
   import Planner from './screens/Planner.svelte';
@@ -35,7 +36,7 @@
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
-    { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'plans', 'plan'] },
+    { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'writeQuestion', 'plans', 'plan'] },
     { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'connect', 'plan:planner'] },
     { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'mark'] },
   ];
@@ -133,6 +134,8 @@
       <PdfImport taskId={route.taskId} />
     {:else if route.name === 'atarImport'}
       <AtarImport taskId={route.taskId} />
+    {:else if route.name === 'writeQuestion'}
+      <WriteQuestion subject={route.subject} />
     {:else if route.name === 'plan'}
       <PlanEditor id={route.id} from={route.from} />
     {:else if route.name === 'planner'}

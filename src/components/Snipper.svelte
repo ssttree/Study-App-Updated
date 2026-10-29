@@ -8,7 +8,7 @@
     prompt,
     onpick,
     startPage = 0,
-  }: { pdf: OpenPdf; prompt: string; onpick: (picture: Picture) => void; startPage?: number } = $props();
+  }: { pdf: OpenPdf; prompt: string; onpick: (picture: Picture, page: number) => void; startPage?: number } = $props();
 
   let pages = $state<{ url: string; width: number; height: number }[]>([]);
   let drag = $state<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -64,7 +64,7 @@
     busy = true;
     try {
       const picture = await pdf.crop([{ page: d.page, ...box }]);
-      if (picture) onpick(picture);
+      if (picture) onpick(picture, d.page);
     } finally {
       busy = false;
       drag = null;

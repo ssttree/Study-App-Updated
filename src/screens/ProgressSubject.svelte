@@ -54,7 +54,7 @@
         </a>
       {:else}
         <p class="muted">
-          Nothing in {shortSubject(subject)} yet. Add flashcards or import a SmarterEd worksheet and it shows up here.
+          Nothing in {shortSubject(subject)} yet. Add flashcards or practice questions and it shows up here.
         </p>
       {/each}
     </section>

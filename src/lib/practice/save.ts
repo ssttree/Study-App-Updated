@@ -4,6 +4,7 @@
 import { addPractice, listSkills, newId, problemKeys } from '../db';
 import type { Problem, ProblemSource, Skill, StoredImage } from '../types';
 import { newSkill } from './mix';
+import { STARTER_SKILLS } from './subjects';
 
 export interface Picture {
   data: string;
@@ -12,8 +13,11 @@ export interface Picture {
 }
 
 export interface DraftProblem {
-  question: Picture;
+  /** A picture of the question, or questionText for a typed one. */
+  question?: Picture | null;
   solution?: Picture | null;
+  questionText?: string;
+  solutionText?: string;
   label: string;
   marks: number;
   mc: boolean;
@@ -84,8 +88,12 @@ export async function saveProblems(
       continue;
     }
     keys.add(key);
-    const q: StoredImage = { id: newId(), ...d.question };
-    images.push(q);
+    let questionImage = '';
+    if (d.question?.data) {
+      const q: StoredImage = { id: newId(), ...d.question };
+      images.push(q);
+      questionImage = q.id;
+    }
     let solutionImage: string | undefined;
     if (d.solution) {
       const s: StoredImage = { id: newId(), ...d.solution };
@@ -101,8 +109,10 @@ export async function saveProblems(
       key,
       marks: d.marks,
       mc: d.mc,
-      questionImage: q.id,
+      questionImage,
       solutionImage,
+      questionText: d.questionText?.trim() || undefined,
+      solutionText: d.solutionText?.trim() || undefined,
       order: order++,
       created: now,
     });
@@ -126,4 +136,19 @@ export function allKnown(keys: string[], known: Map<string, string>): string | n
   const count = new Map<string, number>();
   for (const k of keys) count.set(known.get(k)!, (count.get(known.get(k)!) ?? 0) + 1);
   return [...count].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/**
+ * Adds the syllabus skills for a subject with no SmarterEd worksheets, so
+ * questions from a past paper have somewhere to go. They start switched off
+ * (not taught yet) and turn on when questions are added. Skills already
+ * there by name are left alone.
+ */
+export async function addStarterSkills(subject: string, now = Date.now()): Promise<Skill[]> {
+  const skills = await listSkills();
+  const fresh = (STARTER_SKILLS[subject] ?? [])
+    .filter((s) => !findSkill(skills, subject, s.name))
+    .map((s, i) => newSkill({ subject, name: s.name, topic: s.topic, on: false }, now + i));
+  if (fresh.length) await addPractice(fresh, [], []);
+  return fresh;
 }

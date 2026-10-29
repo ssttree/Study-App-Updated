@@ -2,6 +2,8 @@
   import { loadPractice, relativeDay, shortSubject, type PracticeCollection } from '../lib/practice/load';
   import { activePlans, activeSkills, buildDailyMix, costMinutes, recommendSubjects } from '../lib/practice/mix';
   import { plural } from '../lib/load';
+  import { addStarterSkills } from '../lib/practice/save';
+  import { STARTER_SKILLS } from '../lib/practice/subjects';
   import { href } from '../lib/router.svelte';
 
   let data = $state.raw<PracticeCollection | null>(null);
@@ -9,6 +11,21 @@
   let second = $state('');
 
   loadPractice().then((d) => (data = d));
+
+  /** Business Studies and Engineering Studies: no SmarterEd sheets, so they start from the syllabus. */
+  const written = Object.keys(STARTER_SKILLS);
+  const needsSetup = $derived(data ? written.filter((subject) => !data!.skills.some((s) => s.subject === subject)) : []);
+  let settingUp = $state('');
+
+  async function setUp(subject: string) {
+    settingUp = subject;
+    try {
+      await addStarterSkills(subject);
+      data = await loadPractice();
+    } finally {
+      settingUp = '';
+    }
+  }
 
   const view = $derived.by(() => {
     if (!data) return null;
@@ -36,7 +53,7 @@
     return {
       count: items.length,
       skills: new Set(items.map((i) => i.skill.id)).size,
-      minutes: Math.round(items.reduce((m, i) => m + costMinutes(i.problem), 0)),
+      minutes: Math.round(items.reduce((m, i) => m + costMinutes(i.problem, i.skill.subject), 0)),
       subjects,
     };
   });
@@ -44,7 +61,7 @@
 
 <main class="page">
   {#if data && view}
-    {#if data.skills.length === 0}
+    {#if data.problems.length === 0}
       <section class="hero">
         <div class="eyebrow accent">Problem practice</div>
         <h1>Add your first questions</h1>
@@ -56,6 +73,7 @@
         <div class="actions">
           <a class="btn primary" href={href('practice', 'import')}>Import SmarterEd PDFs</a>
           <a class="btn" href={href('practice', 'atar')}>Add an ATAR Notes topic test</a>
+          <a class="btn" href={href('practice', 'write')}>Type a question</a>
         </div>
       </section>
     {:else if view.ranked.length === 0}
@@ -143,11 +161,34 @@
         {/each}
       </section>
 
+      {#if data.problems.length}
       <section class="add">
         <h2>Add questions</h2>
         <div class="actions">
           <a class="btn" href={href('practice', 'import')}>SmarterEd PDFs</a>
           <a class="btn" href={href('practice', 'atar')}>ATAR Notes topic test</a>
+          <a class="btn" href={href('practice', 'import')}>Past HSC paper</a>
+          <a class="btn" href={href('practice', 'write')}>Type a question</a>
+        </div>
+      </section>
+      {/if}
+    {/if}
+
+    {#if needsSetup.length}
+      <section class="setup panel">
+        <h2>Business Studies and Engineering Studies</h2>
+        <p class="muted small">
+          These have no SmarterEd sheets, so the app starts them from the syllabus: one skill for each part of each
+          topic, switched off until you add questions. Add questions from a NESA past HSC paper (box each question,
+          then its marking guideline), an ATAR Notes test, or type them in. In practice you plan your answer in dot
+          points and check it against the marking guideline, then say whether you picked the right concept.
+        </p>
+        <div class="actions">
+          {#each needsSetup as subject (subject)}
+            <button class="btn" onclick={() => setUp(subject)} disabled={!!settingUp}>
+              {settingUp === subject ? 'Adding...' : `Set up ${subject}`}
+            </button>
+          {/each}
         </div>
       </section>
     {/if}
@@ -180,6 +221,16 @@
   .inline select {
     width: auto;
     min-width: 200px;
+  }
+  .setup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 20px;
+  }
+  .setup p {
+    margin: 0;
+    max-width: 640px;
   }
   .note {
     max-width: 560px;

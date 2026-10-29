@@ -5,13 +5,17 @@
 import { OpenPdf } from './pdf';
 import { findEntries, looksLikeSmarterEd, pairEntries, type Entry, type Worksheet } from './smartered';
 import type { DraftProblem, Picture } from './save';
+import { guessOtherSubject } from './subjects';
 
 export interface DraftPair extends DraftProblem {
+  question: Picture;
   number: number;
   header: string;
   /** Why the app wants you to look at this one. Empty means it looked fine. */
   problems: string[];
   include: boolean;
+  /** Snipped from a past paper: a different skill for this question. Empty means the sheet's skill. */
+  skill?: string;
 }
 
 export interface AnalysedSheet {
@@ -23,11 +27,17 @@ export interface AnalysedSheet {
 
 const TALL = 2.2;
 
+/** Opens a second PDF, like a NESA marking guideline, to snip the answers from. */
+export function openAnswers(file: File): Promise<OpenPdf> {
+  return OpenPdf.open(file);
+}
+
 export async function analyseSheet(file: File, onProgress?: (done: number, total: number) => void): Promise<AnalysedSheet> {
   const pdf = await OpenPdf.open(file);
   const text = await pdf.text();
   const sheet = findEntries(text, file.name);
   const smarterEd = looksLikeSmarterEd(text);
+  if (!smarterEd && !sheet.subject) sheet.subject = guessOtherSubject((text[0]?.items ?? []).map((i) => i.str).join(' '), file.name);
   const pairs: DraftPair[] = [];
   // Not a SmarterEd sheet: no automatic questions, you snip them by hand instead.
   const list = smarterEd ? pairEntries(sheet) : [];

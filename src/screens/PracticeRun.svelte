@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ProblemImage from '../components/ProblemImage.svelte';
+  import ProblemView from '../components/ProblemView.svelte';
   import { getTask, recordAttempt } from '../lib/db';
   import { plural } from '../lib/load';
   import { loadPractice, shortSubject, type PracticeCollection } from '../lib/practice/load';
@@ -12,8 +12,10 @@
     makeAttempt,
     makeSkillScheduler,
     rateSkill,
+    workMinutes,
     type MixItem,
   } from '../lib/practice/mix';
+  import { practiceStyle } from '../lib/practice/subjects';
   import { formatInterval, previewIntervals, RATINGS, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
   import { taskSkillIds, type MethodChoice, type MistakeTag, type Skill } from '../lib/types';
@@ -85,10 +87,13 @@
 
   const current = $derived(items[index]);
   const finished = $derived(loaded && index >= items.length);
-  const plannedMinutes = $derived(Math.round(items.reduce((m, i) => m + costMinutes(i.problem), 0)));
+  const plannedMinutes = $derived(Math.round(items.reduce((m, i) => m + costMinutes(i.problem, i.skill.subject), 0)));
   const elapsed = $derived(Math.max(0, now - startedAt));
   const onQuestion = $derived(Math.max(0, now - questionAt));
-  const target = $derived(current ? (current.problem.marks || 2) * 1.5 * 60_000 : 0);
+  const target = $derived(current ? workMinutes(current.problem, current.skill.subject) * 60_000 : 0);
+  const style = $derived(practiceStyle(current?.skill.subject ?? ''));
+  /** "method" unless every question was a Business Studies one. */
+  const blockWord = $derived(items.length && items.every((i) => practiceStyle(i.skill.subject).methodWord === 'concept') ? 'concept' : 'method');
   const intervals = $derived(current && scheduler && revealed ? previewIntervals(scheduler, current.skill.fsrs) : null);
   const knownLetter = $derived(current?.problem.answerLetter ?? rightLetter);
   const otherSkills = $derived(
@@ -185,7 +190,7 @@
     { value: 'misread', label: 'Misread the question' },
     { value: 'time', label: 'Ran out of time' },
   ];
-  const sourceName = { smartered: 'SmarterEd', atarnotes: 'ATAR Notes', snip: 'Snipped' } as const;
+  const sourceName = { smartered: 'SmarterEd', atarnotes: 'ATAR Notes', snip: 'Snipped', typed: 'Typed' } as const;
 
   const summary = $derived.by(() => {
     const n = results.length;
@@ -224,9 +229,9 @@
       <div class="eyebrow accent">Block done</div>
       <h1>{plural(summary.n, 'question')} in {summary.minutes} min</h1>
       <p class="muted">
-        Right method on {summary.methodRight}% of them{summary.again ? `, and ${summary.again} to come back to soon` : ''}.
+        Right {blockWord} on {summary.methodRight}% of them{summary.again ? `, and ${summary.again} to come back to soon` : ''}.
         If that felt harder than doing one topic at a time, good: mixing is meant to feel that way, and it is what
-        makes the methods stick for the exam.
+        makes the {blockWord}s stick for the exam.
       </p>
       <div class="actions">
         <a class="btn primary" href={href('practice')}>Back to practice</a>
@@ -250,7 +255,7 @@
             </li>
           {/each}
         </ol>
-        <p class="muted small">The skills stay hidden until you reveal, so you have to work out which method each question needs.</p>
+        <p class="muted small">The skills stay hidden until you reveal, so you have to work out which {blockWord} each question needs.</p>
       </aside>
 
       <main class="work">
@@ -261,9 +266,9 @@
           </span>
         </div>
 
-        <ProblemImage id={current.problem.questionImage} alt="Question {index + 1}" />
+        <ProblemView image={current.problem.questionImage} text={current.problem.questionText} alt="Question {index + 1}" />
         <div class="hint muted small">
-          <span>Work it on paper{current.problem.mc ? ', then pick your letter' : ''}.</span>
+          <span>{style.task}{current.problem.mc ? ', then pick your letter' : ''}.</span>
           <span class="mono timer" class:over={onQuestion > target}>{clock(onQuestion)} · aim {clock(target)}</span>
         </div>
 
@@ -289,17 +294,17 @@
 
         {#if !revealed}
           <div class="actions">
-            <button class="btn primary" onclick={reveal}>Show worked solution</button>
+            <button class="btn primary" onclick={reveal}>Show {style.answerName.toLowerCase()}</button>
             <button class="btn" onclick={skip}>Skip for now</button>
             <span class="muted small keys">Space shows it</span>
           </div>
         {:else}
           <section class="solution">
-            <div class="eyebrow accent">Worked solution · {current.skill.name}</div>
-            {#if current.problem.solutionImage}
-              <ProblemImage id={current.problem.solutionImage} alt="Worked solution" />
+            <div class="eyebrow accent">{style.answerName} · {current.skill.name}</div>
+            {#if current.problem.solutionImage || current.problem.solutionText}
+              <ProblemView image={current.problem.solutionImage} text={current.problem.solutionText} alt={style.answerName} />
             {:else}
-              <p class="muted">No worked solution saved for this one. Check your answer in the original source.</p>
+              <p class="muted">No {style.answerName.toLowerCase()} saved for this one. Check your answer in the original source.</p>
             {/if}
           </section>
 
@@ -314,7 +319,7 @@
               </div>
             {/if}
             <div class="line">
-              <span class="label">Did you pick the right method?</span>
+              <span class="label">{style.methodQuestion}</span>
               {#each [['yes', 'Yes'], ['partly', 'Partly'], ['no', 'No']] as [value, label] (value)}
                 <button class="chip" class:on={method === value} onclick={() => (method = value as MethodChoice)} aria-pressed={method === value}>{label}</button>
               {/each}
@@ -336,7 +341,7 @@
             </div>
             <div class="rates">
               {#each RATINGS as r (r.value)}
-                <button class="rate" onclick={() => rate(r.value)} disabled={!method || saving} title={!method ? 'Answer the method question first' : ''}>
+                <button class="rate" onclick={() => rate(r.value)} disabled={!method || saving} title={!method ? `Answer the ${style.methodWord} question first` : ''}>
                   {r.label}
                   <span>{intervals ? formatInterval(intervals[r.value]) : ''}</span>
                 </button>
@@ -344,7 +349,7 @@
             </div>
             <p class="muted small keys">
               Again: wrong or stuck. Hard: right but slow or shaky. Good: right. Easy: right and quick.
-              {#if !method}Tap the method answer first (or press Y, P or N).{:else}Keys 1 to 4 work too.{/if}
+              {#if !method}Tap the {style.methodWord} answer first (or press Y, P or N).{:else}Keys 1 to 4 work too.{/if}
             </p>
           </section>
         {/if}
