@@ -1,5 +1,6 @@
-// Talks to the Railway server whenever the laptop is online: collects
-// homework added on the phone, refreshes the copy of your work and timetable
+// Talks to the Railway server whenever this device is online: syncs all
+// your data with your other devices (see datasync.ts), collects homework
+// added on the quick add page, refreshes the copy of your work and timetable
 // calendars, and pushes due dates and study blocks to Google. Everything
 // else in the app keeps working offline; this just catches up later.
 
@@ -12,14 +13,19 @@ import {
   saveSyncConfig,
   saveTasks,
 } from './db';
+import { noteSyncError, syncData } from './datasync';
 import { addDays, keyToTime, todayKey } from './planner/dates';
 import { blockEvents, dueEvents, toCalEvent, type CalendarCache } from './planner/calendar';
 import { itemText } from './planner/labels';
 import { loadPlanner } from './planner/load';
 import type { SyncConfig, Task } from './types';
 
-/** How often the app syncs by itself. "Sync now" ignores this. */
+/** How often your data syncs with your other devices while the app is open. */
+export const DATA_SYNC_EVERY = 60_000;
+/** How often the phone inbox and Google Calendar are checked. "Sync now" ignores this. */
 export const SYNC_EVERY = 10 * 60_000;
+/** Sent on window when another device's changes arrived, so the screen can reload. */
+export const DATA_SYNCED = 'study-data-synced';
 /** Days of your calendars kept for offline planning. */
 const READ_BACK = 1;
 const READ_AHEAD = 21;
@@ -90,6 +96,9 @@ export function taskFromInbox(item: InboxItem): Task {
 }
 
 export interface SyncResult {
+  /** Records sent to and collected from your other devices. */
+  sent: number;
+  got: number;
   collected: number;
   pushed: boolean;
   calendarsRead: boolean;
@@ -105,11 +114,24 @@ export function sync(force = false): Promise<SyncResult> {
 }
 
 async function run(force: boolean): Promise<SyncResult> {
-  const result: SyncResult = { collected: 0, pushed: false, calendarsRead: false };
+  const result: SyncResult = { sent: 0, got: 0, collected: 0, pushed: false, calendarsRead: false };
   let config = await getSyncConfig();
   if (!config.key) return result;
-  if (!force && config.lastSync && Date.now() - config.lastSync < SYNC_EVERY) return result;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return result;
+
+  // Your data, every time.
+  try {
+    const data = await syncData(config.key);
+    result.sent = data.sent;
+    result.got = data.got;
+    if (data.got && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(DATA_SYNCED, { detail: data.got }));
+  } catch (e) {
+    result.error = e instanceof Error ? e.message : String(e);
+    await noteSyncError(result.error);
+    if (e instanceof SyncError && (e.status === 0 || e.status === 401)) return result;
+  }
+
+  if (!force && config.lastSync && Date.now() - config.lastSync < SYNC_EVERY) return result;
   try {
     const status = await api<ServerStatus>(config.key, '/api/status');
     config = { ...config, connected: status.connected };
@@ -124,7 +146,8 @@ async function run(force: boolean): Promise<SyncResult> {
       result.collected = fresh.length;
     }
 
-    if (status.connected) {
+    // Only one device talks to Google; the others get the calendar copy through sync.
+    if (status.connected && config.google !== false) {
       // 2. A fresh copy of your work and timetable calendars.
       result.calendarsRead = await readCalendars(config);
       // 3. Due dates and study blocks out to Google.
@@ -146,9 +169,9 @@ async function run(force: boolean): Promise<SyncResult> {
     }
     await saveSyncConfig({ ...config, lastSync: Date.now(), lastError: undefined });
   } catch (e) {
-    result.error = e instanceof Error ? e.message : String(e);
+    result.error ??= e instanceof Error ? e.message : String(e);
     const connected = e instanceof SyncError && e.status === 409 ? false : config.connected;
-    await saveSyncConfig({ ...config, connected, lastSync: Date.now(), lastError: result.error });
+    await saveSyncConfig({ ...config, connected, lastSync: Date.now(), lastError: e instanceof Error ? e.message : String(e) });
   }
   return result;
 }

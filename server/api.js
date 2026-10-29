@@ -13,6 +13,7 @@ import {
   readEvents,
   reconcile,
 } from './google.js';
+import { validChange } from './sync.js';
 
 const TYPES = new Set(['classwork', 'smartered', 'assignment', 'other']);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -84,7 +85,9 @@ function callbackUrl(req) {
 
 const isoDay = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
-export function createApi(store) {
+const DEVICE = /^[\w-]{8,64}$/;
+
+export function createApi(store, syncStore) {
   const client = createClient(store);
 
   async function handle(req, res, url) {
@@ -145,6 +148,32 @@ export function createApi(store) {
         const done = new Set(Array.isArray(ids) ? ids : []);
         await store.update((d) => void (d.inbox = d.inbox.filter((t) => !done.has(t.id))));
         return send(res, 200, { ok: true });
+      }
+
+      // Syncing all study data between devices (see sync.js).
+      if (path.startsWith('/api/sync/')) {
+        if (!syncStore) return send(res, 503, { error: 'Sync is not set up on this server.' });
+        try {
+          if (path === '/api/sync/status' && req.method === 'GET') return send(res, 200, await syncStore.status());
+          if (path === '/api/sync/pull' && req.method === 'GET') {
+            const device = url.searchParams.get('device') ?? '';
+            const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
+            if (!DEVICE.test(device)) return send(res, 400, { error: 'Bad device id' });
+            return send(res, 200, await syncStore.pull(device, since));
+          }
+          if (path === '/api/sync/push' && req.method === 'POST') {
+            const { device, changes } = await readJson(req, 16_000_000);
+            if (typeof device !== 'string' || !DEVICE.test(device) || !Array.isArray(changes) || !changes.every(validChange)) {
+              return send(res, 400, { error: 'Bad sync data' });
+            }
+            return send(res, 200, await syncStore.push(device, changes));
+          }
+        } catch (e) {
+          if (e instanceof GoogleError) throw e;
+          console.error(e);
+          return send(res, 503, { error: "The server couldn't open its sync database. It needs Node 22.13 or newer." });
+        }
+        return send(res, 404, { error: 'Not found' });
       }
 
       if (path === '/api/google/disconnect' && req.method === 'POST') {
