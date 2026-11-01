@@ -33,6 +33,8 @@
   import Devices from './screens/Devices.svelte';
   import Join from './screens/Join.svelte';
   import { DATA_SYNCED, DATA_SYNC_EVERY, sync } from './lib/sync';
+  import { getSyncConfig } from './lib/db';
+  import { getDataSyncState } from './lib/datasync';
 
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
@@ -48,10 +50,14 @@
   // Catch up with the server now, every minute while the app is on screen, when it comes back
   // online or into view, and when you leave it (so the other devices get what you just did).
   $effect(() => {
-    sync();
-    const t = setInterval(() => document.visibilityState === 'visible' && sync(), DATA_SYNC_EVERY);
-    const online = () => sync();
-    const visible = () => sync();
+    run();
+    const t = setInterval(() => document.visibilityState === 'visible' && run(), DATA_SYNC_EVERY);
+    const online = () => run();
+    const visible = () => {
+      // Another tab in this browser may have changed things while this one was hidden.
+      if (document.visibilityState === 'visible') refresh();
+      run();
+    };
     window.addEventListener('online', online);
     document.addEventListener('visibilitychange', visible);
     return () => {
@@ -65,13 +71,34 @@
   // you're typing or studying are left alone and pick it up next time they open.
   const REFRESH = new Set(['today', 'decks', 'deck', 'practice', 'plans', 'skills', 'skill', 'planner', 'homework', 'exams', 'progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'settings']);
   let dataVersion = $state(0);
+  function refresh() {
+    if (REFRESH.has(router.route.name)) dataVersion++;
+  }
+  // Tabs of the same browser share storage, so they tell each other when something changed.
+  const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('study-data');
   $effect(() => {
-    const changed = () => {
-      if (REFRESH.has(router.route.name)) dataVersion++;
+    window.addEventListener(DATA_SYNCED, refresh);
+    // Clicking into a tab (or a split view pane) picks up what another tab did.
+    window.addEventListener('focus', refresh);
+    if (channel) channel.onmessage = refresh;
+    return () => {
+      window.removeEventListener(DATA_SYNCED, refresh);
+      window.removeEventListener('focus', refresh);
+      if (channel) channel.onmessage = null;
     };
-    window.addEventListener(DATA_SYNCED, changed);
-    return () => window.removeEventListener(DATA_SYNCED, changed);
   });
+
+  // A warning in the header when this browser isn't syncing, so a Zen space or phone that was
+  // never set up (or a server problem) is obvious instead of quietly showing old data.
+  let syncWarning = $state('');
+  async function run() {
+    const result = await sync();
+    if (result.sent || result.got) channel?.postMessage('changed');
+    const [config, state] = await Promise.all([getSyncConfig(), getDataSyncState()]);
+    if (!config.key) syncWarning = 'Not syncing';
+    else if (state.lastError && navigator.onLine !== false) syncWarning = 'Sync problem';
+    else syncWarning = '';
+  }
 
   let now = $state(new Date());
   $effect(() => {
@@ -106,6 +133,7 @@
         </a>
       {/each}
     </nav>
+    {#if syncWarning}<a class="sync-warn mono" href={href('settings', 'sync')}>{syncWarning}</a>{/if}
     <span class="clock mono muted">{clock}</span>
     <a class="settings" class:on={key === 'settings' || key === 'devices'} href={href('settings')}>Settings</a>
   </header>
@@ -219,6 +247,19 @@
   .settings.on {
     color: var(--bg);
     background: var(--text);
+  }
+  .sync-warn {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    border-radius: 14px;
+    padding: 4px 10px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .sync-warn + .clock {
+    margin-left: 0;
   }
   .clock {
     margin-left: auto;
