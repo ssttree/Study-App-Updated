@@ -38,6 +38,7 @@ export type Route =
   | { name: 'marksImport' }
   | { name: 'mark'; id: string; assessmentId?: string; year?: 11 }
   | { name: 'weeklyReview' }
+  | { name: 'fixes' }
   | { name: 'notFound' };
 
 export function parseHash(hash: string): Route {
@@ -64,6 +65,8 @@ export function parseHash(hash: string): Route {
       return rest[0] ? { name: 'card', id: rest[0] } : { name: 'notFound' };
     case 'settings':
       return rest[0] === 'sync' ? { name: 'devices' } : { name: 'settings' };
+    case 'fixes':
+      return { name: 'fixes' };
     // The link that sets up another device (it carries the app key).
     case 'join':
       return { name: 'join', key: rest[0] };

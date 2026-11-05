@@ -24,6 +24,7 @@ import {
   type TestPlan,
   type Mark,
   type WeeklyReview,
+  type Fix,
 } from './types';
 
 interface StudyDB extends DBSchema {
@@ -44,10 +45,11 @@ interface StudyDB extends DBSchema {
   plans: { key: string; value: DayPlan };
   marks: { key: string; value: Mark };
   weeklyReviews: { key: string; value: WeeklyReview };
+  fixes: { key: string; value: Fix };
 }
 
 export const DB_NAME = 'study-app';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let dbPromise: Promise<IDBPDatabase<StudyDB>> | null = null;
 
@@ -85,6 +87,10 @@ export function db(): Promise<IDBPDatabase<StudyDB>> {
         // Progress: real marks and the Sunday weekly review.
         database.createObjectStore('marks', { keyPath: 'id' });
         database.createObjectStore('weeklyReviews', { keyPath: 'week' });
+      }
+      if (oldVersion < 5) {
+        // The list of app fixes noticed while using it.
+        database.createObjectStore('fixes', { keyPath: 'id' });
       }
     },
     // A newer version of the app opened in another tab: step aside so it can upgrade.
@@ -222,6 +228,7 @@ export interface AllData {
   availability?: Availability;
   marks?: Mark[];
   weeklyReviews?: WeeklyReview[];
+  fixes?: Fix[];
 }
 
 const ALL_STORES = [
@@ -238,6 +245,7 @@ const ALL_STORES = [
   'plans',
   'marks',
   'weeklyReviews',
+  'fixes',
 ] as const;
 
 /** Replaces everything with the given data (used by backup restore). */
@@ -257,6 +265,7 @@ export async function replaceAll(data: AllData): Promise<void> {
   for (const plan of data.plans ?? []) await tx.objectStore('plans').put(plan);
   for (const mark of data.marks ?? []) await tx.objectStore('marks').put(mark);
   for (const review of data.weeklyReviews ?? []) await tx.objectStore('weeklyReviews').put(review);
+  for (const fix of data.fixes ?? []) await tx.objectStore('fixes').put(fix);
   await tx.objectStore('meta').put(data.settings, 'settings');
   if (data.availability) await tx.objectStore('meta').put(data.availability, 'availability');
   else await tx.objectStore('meta').delete('availability');
@@ -503,6 +512,22 @@ export async function listWeeklyReviews(): Promise<WeeklyReview[]> {
 
 export async function saveWeeklyReview(review: WeeklyReview): Promise<void> {
   await (await db()).put('weeklyReviews', review);
+}
+
+// App fixes
+
+/** Newest first. */
+export async function listFixes(): Promise<Fix[]> {
+  const fixes = await (await db()).getAll('fixes');
+  return fixes.sort((a, b) => b.created - a.created);
+}
+
+export async function saveFix(fix: Fix): Promise<void> {
+  await (await db()).put('fixes', { ...fix, updated: Date.now() });
+}
+
+export async function deleteFix(id: string): Promise<void> {
+  await (await db()).delete('fixes', id);
 }
 
 // Phone and Google Calendar (this laptop only)

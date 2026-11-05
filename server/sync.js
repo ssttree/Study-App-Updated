@@ -30,6 +30,7 @@ export const SYNC_STORES = new Set([
   'plans',
   'marks',
   'weeklyReviews',
+  'fixes',
 ]);
 /** The only meta entries that sync. The app key and sync state stay on each device. */
 export const SYNC_META = new Set(['settings', 'availability', 'calendarCache']);

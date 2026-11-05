@@ -183,6 +183,14 @@
         <a href={href('planner', 'connect')}>Set it up</a>
       </p>
     </section>
+
+    <section class="block">
+      <h2>App fixes</h2>
+      <p class="muted hint">
+        Bugs and improvements you've noted with <strong>+ Fix</strong>, ready to hand to Claude in one go.
+        <a href={href('fixes')}>Open the fix list</a>
+      </p>
+    </section>
   {/if}
 </main>
 
