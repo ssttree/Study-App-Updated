@@ -222,6 +222,14 @@
     await act(() => saveAvailability(a));
   }
 
+  const autoFill = $derived(data?.input.availability.autoFill !== false);
+  /** Turns the planner's filling of spare time with problems, test prep and revision on or off. */
+  function toggleAutoFill() {
+    if (!data) return;
+    const a: Availability = { ...structuredClone(data.input.availability), autoFill: !autoFill };
+    act(() => saveAvailability(a));
+  }
+
   const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
 </script>
 
@@ -302,6 +310,10 @@
         <button class:on={view === 'day'} aria-pressed={view === 'day'} onclick={() => pickView('day')}>Day</button>
         <button class:on={view === 'week'} aria-pressed={view === 'week'} onclick={() => pickView('week')}>Week</button>
       </div>
+      <label class="auto" title="When off, spare study time stays free instead of getting problems, test prep and revision">
+        <input type="checkbox" checked={autoFill} onchange={toggleAutoFill} disabled={busy} />
+        <span>Auto fill study time</span>
+      </label>
       {#if view === 'day'}
         <div class="step">
           {#if prevDay}<a class="btn small" href={dayHref(prevDay.date)} aria-label="Previous day">&larr; {dayLabel(prevDay.date, data.today)}</a>{/if}
@@ -577,6 +589,20 @@
     gap: 10px;
     justify-content: space-between;
     align-items: center;
+  }
+  .auto {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 14px;
+    margin-right: auto;
+  }
+  .auto input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
   }
   .seg {
     display: flex;

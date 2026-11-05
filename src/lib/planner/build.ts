@@ -11,6 +11,9 @@
 // 4. Flexible windows only get optional things, so skipping one costs nothing.
 // 5. Study periods at school get revision: flashcards the bus didn't cover,
 //    then problems or test prep. Never desk homework.
+//
+// With auto fill switched off, steps 3 to 5 only place optional homework:
+// spare time stays free and nothing fills it with problems or revision.
 
 import type { Availability, DayPlan, PlanItem, StudyWindow, Task, TestPlan } from '../types';
 import { addDays, daysBetween } from './dates';
@@ -195,7 +198,8 @@ function buildDay(
   }
 
   // 3. Problems in what is left of the desk windows.
-  const choice = problemChoice(date, index, input, lastSubject);
+  const autoFill = input.availability.autoFill !== false;
+  const choice = autoFill ? problemChoice(date, index, input, lastSubject) : null;
   const used = new Set(items.filter((it) => it.subjects && it.kind !== 'homework').map((it) => it.subjects![0]));
   for (const w of desk) {
     if (!choice || items.some((it) => it.windowId === w.id && it.kind !== 'flashcards' && it.kind !== 'homework')) continue;
@@ -224,7 +228,7 @@ function buildDay(
   for (const w of bus) addOptional(w, optionalCards);
   for (const w of flexible) {
     addOptional(w, optional);
-    if (free[w.id] >= MIN_SLICE && input.problemSubjects.length) {
+    if (autoFill && free[w.id] >= MIN_SLICE && input.problemSubjects.length) {
       const subject = input.problemSubjects.find((s) => !used.has(s)) ?? input.problemSubjects[0];
       add(w, { kind: 'problems', minutes: free[w.id], subjects: [subject], optional: true });
     }

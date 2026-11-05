@@ -192,6 +192,21 @@ describe('building the plan', () => {
     expect(mon.plan.items.find((it) => it.taskId === cards.id)?.windowId).toMatch(/^bus/);
   });
 
+  it('leaves spare time free when auto fill is off', () => {
+    const hw = task('Questions', { minutes: 20 });
+    const opt = task('Extra set', { required: false, minutes: 15, due: '2026-10-29' });
+    const availability = { ...defaultAvailability(), autoFill: false };
+    const week = buildWeek(input({ tasks: [hw, opt], availability }));
+    const kinds = new Set(week.flatMap((d) => d.plan.items.map((it) => it.kind)));
+    expect(kinds.has('problems') || kinds.has('prep') || kinds.has('final')).toBe(false);
+    expect(week[0].plan.items.find((it) => it.taskId === hw.id)).toBeTruthy();
+    expect(week[0].plan.items.some((it) => it.kind === 'flashcards')).toBe(true);
+    expect(week.some((d) => d.plan.items.some((it) => it.taskId === opt.id))).toBe(true);
+    // On by default: the same week gets problems.
+    const on = buildWeek(input({ tasks: [hw, opt] }));
+    expect(on.some((d) => d.plan.items.some((it) => it.kind === 'problems'))).toBe(true);
+  });
+
   it('only puts optional things in flexible windows', () => {
     const opt = task('Extra set', { required: false, minutes: 15, due: '2026-10-29' });
     const req = task('Questions', { minutes: 45, due: '2026-10-28' });

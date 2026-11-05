@@ -42,7 +42,7 @@
   const frontErrors = $derived(card ? renderMarkdown(card.front).errors : []);
   const backErrors = $derived(card ? renderMarkdown(card.back).errors : []);
   const deck = $derived(card ? decks.find((d) => d.id === card!.deckId) : undefined);
-  const canSave = $derived(!!card && (card.front.trim() !== '' || !!card.image) && card.back.trim() !== '');
+  const canSave = $derived(!!card && (card.front.trim() !== '' || !!card.image) && (card.back.trim() !== '' || !!card.backImage));
 
   async function save(addAnother: boolean) {
     if (!card || !canSave) return;
@@ -72,11 +72,13 @@
     go('decks', card.deckId);
   }
 
-  async function pickImage(e: Event) {
+  async function pickImage(e: Event, side: 'front' | 'back' = 'front') {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     if (!file || !card) return;
-    card.image = await imageToDataUrl(file);
+    const data = await imageToDataUrl(file);
+    if (side === 'front') card.image = data;
+    else card.backImage = data;
     input.value = '';
   }
 
@@ -175,10 +177,20 @@
         </label>
         <div class="preview panel">
           <div class="eyebrow">Preview</div>
-          <div class="answer"><MathText text={card.back || '*Nothing yet*'} /></div>
+          {#if card.backImage}<img class="card-image" src={card.backImage} alt="" />{/if}
+          {#if card.back || !card.backImage}<div class="answer"><MathText text={card.back || '*Nothing yet*'} /></div>{/if}
           {#each backErrors as err (err.tex)}
             <p class="err">Maths error in <code>{err.tex}</code>: {err.message}</p>
           {/each}
+        </div>
+        <div class="image-row">
+          <label class="btn small">
+            {card.backImage ? 'Change answer picture' : 'Add answer picture'}
+            <input class="sr-only" type="file" accept="image/*" onchange={(e) => pickImage(e, 'back')} />
+          </label>
+          {#if card.backImage}
+            <button class="btn small" onclick={() => card && (card.backImage = undefined)}>Remove picture</button>
+          {/if}
         </div>
       </div>
     </section>
