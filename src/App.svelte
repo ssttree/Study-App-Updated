@@ -32,6 +32,8 @@
   import Connect from './screens/Connect.svelte';
   import Devices from './screens/Devices.svelte';
   import Join from './screens/Join.svelte';
+  import Fixes from './screens/Fixes.svelte';
+  import FixAdd from './components/FixAdd.svelte';
   import { DATA_SYNCED, DATA_SYNC_EVERY, sync } from './lib/sync';
   import { getSyncConfig } from './lib/db';
   import { getDataSyncState } from './lib/datasync';
@@ -69,7 +71,7 @@
 
   // Another device's changes arrived: reload screens that only show things. Screens where
   // you're typing or studying are left alone and pick it up next time they open.
-  const REFRESH = new Set(['today', 'decks', 'deck', 'practice', 'plans', 'skills', 'skill', 'planner', 'homework', 'exams', 'progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'settings']);
+  const REFRESH = new Set(['today', 'decks', 'deck', 'practice', 'plans', 'skills', 'skill', 'planner', 'homework', 'exams', 'progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'settings', 'fixes']);
   let dataVersion = $state(0);
   function refresh() {
     if (REFRESH.has(router.route.name)) dataVersion++;
@@ -135,6 +137,7 @@
     </nav>
     {#if syncWarning}<a class="sync-warn mono" href={href('settings', 'sync')}>{syncWarning}</a>{/if}
     <span class="clock mono muted">{clock}</span>
+    <FixAdd />
     <a class="settings" class:on={key === 'settings' || key === 'devices'} href={href('settings')}>Settings</a>
   </header>
 
@@ -197,6 +200,8 @@
       <Marks />
     {:else if route.name === 'marksImport'}
       <MarksImport />
+    {:else if route.name === 'fixes'}
+      <Fixes />
     {:else if route.name === 'mark'}
       <MarkEditor id={route.id} assessmentId={route.assessmentId} year={route.year} />
     {:else}
@@ -284,6 +289,12 @@
     }
     .clock {
       display: none;
+    }
+    .top :global(.fix-btn) {
+      margin-left: auto;
+    }
+    .sync-warn ~ :global(.fix-btn) {
+      margin-left: 0;
     }
   }
   :global(.page) {

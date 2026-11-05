@@ -19,14 +19,15 @@ import {
   listTestPlans,
   listMarks,
   listWeeklyReviews,
+  listFixes,
   replaceAll,
   saveSettings,
 } from './db';
-import type { Attempt, Availability, Card, DayPlan, Deck, Mark, Problem, ReviewLog, Settings, Skill, StoredImage, Task, TestPlan, WeeklyReview } from './types';
+import type { Attempt, Availability, Card, DayPlan, Deck, Fix, Mark, Problem, ReviewLog, Settings, Skill, StoredImage, Task, TestPlan, WeeklyReview } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 export const BACKUP_FORMAT = 'study-app-backup';
-export const BACKUP_VERSION = 4;
+export const BACKUP_VERSION = 5;
 export const BACKUP_REMINDER_DAYS = 7;
 
 export interface Backup {
@@ -46,12 +47,13 @@ export interface Backup {
   plans: DayPlan[];
   marks: Mark[];
   weeklyReviews: WeeklyReview[];
+  fixes: Fix[];
   /** Missing until the study windows have been set up. */
   availability?: Availability;
 }
 
 export async function createBackup(now = Date.now()): Promise<Backup> {
-  const [decks, cards, reviewLogs, settings, skills, problems, attempts, testPlans, images, tasks, plans, ownWindows, marks, weeklyReviews] = await Promise.all([
+  const [decks, cards, reviewLogs, settings, skills, problems, attempts, testPlans, images, tasks, plans, ownWindows, marks, weeklyReviews, fixes] = await Promise.all([
     listDecks(),
     listCards(),
     listReviewLogs(),
@@ -66,6 +68,7 @@ export async function createBackup(now = Date.now()): Promise<Backup> {
     hasAvailability(),
     listMarks(),
     listWeeklyReviews(),
+    listFixes(),
   ]);
   return {
     format: BACKUP_FORMAT,
@@ -84,6 +87,7 @@ export async function createBackup(now = Date.now()): Promise<Backup> {
     plans,
     marks,
     weeklyReviews,
+    fixes,
     availability: ownWindows ? await getAvailability() : undefined,
   };
 }
@@ -123,7 +127,7 @@ export function parseBackup(data: unknown): Backup {
   const deckIds = new Set(b.decks.map((d) => d.id));
   const orphan = b.cards.find((c) => !deckIds.has(c.deckId));
   if (orphan) throw new Error('This backup has cards that belong to a missing deck, so it may be damaged.');
-  // Version 1 backups were made before problem practice, version 2 before the planner and version 3 before progress, so they have none of it.
+  // Version 1 backups were made before problem practice, version 2 before the planner and version 3 before progress and version 4 before the fix list, so they have none of it.
   const list = <T>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
   return {
     format: BACKUP_FORMAT,
@@ -142,6 +146,7 @@ export function parseBackup(data: unknown): Backup {
     plans: list(b.plans),
     marks: list(b.marks),
     weeklyReviews: list(b.weeklyReviews),
+    fixes: list(b.fixes),
     availability: b.availability && Array.isArray(b.availability.windows) ? b.availability : undefined,
   };
 }

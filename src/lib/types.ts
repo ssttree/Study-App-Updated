@@ -410,3 +410,22 @@ export interface WeeklyReview {
   note: string;
   at: number;
 }
+
+/** Parts of the app a fix can be about. */
+export const FIX_AREAS = ['Flashcards', 'Practice', 'Planner', 'Homework', 'Progress', 'Other'] as const;
+export type FixArea = (typeof FIX_AREAS)[number];
+
+/** A bug or improvement noticed while using the app, saved to be fixed later in a batch. */
+export interface Fix {
+  id: string;
+  text: string;
+  kind: 'bug' | 'idea';
+  area: FixArea;
+  /** The screen it was added from, e.g. "#/planner", so it's clear what it was about. */
+  where?: string;
+  done: boolean;
+  created: number;
+  doneAt?: number;
+  /** Set on every save, so the later change wins when two devices edit it. */
+  updated: number;
+}

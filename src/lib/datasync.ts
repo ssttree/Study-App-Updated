@@ -29,6 +29,7 @@ export const SYNCED_STORES = [
   'plans',
   'marks',
   'weeklyReviews',
+  'fixes',
 ] as const;
 type SyncedStore = (typeof SYNCED_STORES)[number] | 'meta';
 
