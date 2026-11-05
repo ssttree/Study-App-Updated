@@ -32,6 +32,9 @@
   const schedulerFor = (deckId: string) => (examDecks.has(deckId) && examScheduler ? examScheduler : scheduler);
   let queue = $state.raw<QueueItem[]>([]);
   let current = $state.raw<QueueItem | null>(null);
+  // A reversed card asks with the back, so the pictures swap sides too.
+  const questionImage = $derived(current ? (current.direction === 'forward' ? current.card.image : current.card.backImage) : undefined);
+  const answerImage = $derived(current ? (current.direction === 'forward' ? current.card.backImage : current.card.image) : undefined);
   let revealed = $state(false);
   let typed = $state('');
   let optionalTypingOn = $state(readTypingPref());
@@ -237,8 +240,8 @@
           </span>
         </div>
 
-        {#if current.card.image && current.direction === 'forward'}
-          <img class="card-image" src={current.card.image} alt="" />
+        {#if questionImage}
+          <img class="card-image" src={questionImage} alt="" />
         {/if}
         <MathText text={question} />
 
@@ -272,8 +275,8 @@
               </div>
             </div>
           {/if}
-          {#if current.card.image && current.direction === 'reverse'}
-            <img class="card-image" src={current.card.image} alt="" />
+          {#if answerImage}
+            <img class="card-image" src={answerImage} alt="" />
           {/if}
           <div class="answer"><MathText text={answer} /></div>
         {/if}

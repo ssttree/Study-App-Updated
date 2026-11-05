@@ -59,6 +59,8 @@ export interface Card {
   answer?: string;
   /** Optional picture shown on the front, stored as a data URL. */
   image?: string;
+  /** Optional picture shown with the answer, stored as a data URL. */
+  backImage?: string;
   /** Where the card came from, e.g. "manual" or "anki:Chem deck". */
   source: string;
   fsrs: FsrsState;
@@ -297,6 +299,8 @@ export interface Availability {
   /** Study hours (HH:MM): home and school windows are trimmed to fit. Empty or missing means no limit. */
   earliest?: string;
   latest?: string;
+  /** False: spare time is left free instead of filled with problems, test prep and revision. Missing means on. */
+  autoFill?: boolean;
 }
 
 export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';
