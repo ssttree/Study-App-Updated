@@ -128,9 +128,22 @@ function findClosing(src: string, from: number, marker: string): number {
   return -1;
 }
 
+/**
+ * Lets maths be typed the quick way: >= and <= become the proper signs, and
+ * the slanted signs pasted from elsewhere (U+2A7E, U+2A7D) get KaTeX's own
+ * glyphs. Chemistry arrows like <=> and <=>> are left alone.
+ */
+export function tidyTex(tex: string): string {
+  return tex
+    .replace(/(?<![<>=-])>=(?![>=])/g, '\\geq ')
+    .replace(/(?<![<>=-])<=(?![>=<])/g, '\\leq ')
+    .replace(/\u2A7E/g, '\\geqslant ')
+    .replace(/\u2A7D/g, '\\leqslant ');
+}
+
 export function renderMath(piece: MathPiece): { html: string; error?: string } {
   try {
-    const html = katex.renderToString(piece.tex, {
+    const html = katex.renderToString(tidyTex(piece.tex), {
       displayMode: piece.display,
       throwOnError: true,
       strict: 'ignore',

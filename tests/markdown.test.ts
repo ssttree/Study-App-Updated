@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractMath, plainText, renderMarkdown } from '../src/lib/markdown';
+import { extractMath, plainText, renderMarkdown, tidyTex } from '../src/lib/markdown';
 
 describe('extractMath', () => {
   it('finds inline and display maths', () => {
@@ -68,5 +68,21 @@ describe('renderMarkdown', () => {
 describe('plainText', () => {
   it('strips formatting for lists and search', () => {
     expect(plainText('**Bold** _it_\n\n$$x$$')).toBe('Bold it x');
+  });
+});
+
+describe('tidyTex', () => {
+  it('turns >= and <= into the proper signs', () => {
+    expect(tidyTex('r>=1')).toBe('r\\geq 1');
+    expect(tidyTex('0<=x')).toBe('0\\leq x');
+    expect(tidyTex('r⩾1')).toBe('r\\geqslant 1');
+  });
+  it('leaves chemistry arrows alone', () => {
+    expect(tidyTex('\\ce{N2 + 3H2 <=> 2NH3}')).toBe('\\ce{N2 + 3H2 <=> 2NH3}');
+    expect(tidyTex('\\ce{A <=>> B}')).toBe('\\ce{A <=>> B}');
+    expect(tidyTex('\\ce{A <<=> B}')).toBe('\\ce{A <<=> B}');
+  });
+  it('renders a geq sign in a card', () => {
+    expect(renderMarkdown('When $r>=1$').html).toContain('≥');
   });
 });
