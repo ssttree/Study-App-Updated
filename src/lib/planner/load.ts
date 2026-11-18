@@ -89,7 +89,12 @@ export function finishedSets(tasks: Task[], practice: Pick<PracticeCollection, '
   return out;
 }
 
-export async function loadPlanner(now = Date.now()): Promise<PlannerData> {
+/**
+ * `horizon` is how many days from today to plan. Seven for the home screen and
+ * Google; the planner asks for five weeks so you can look ahead. Only today's
+ * plan is saved, so the later days are a preview that updates as things change.
+ */
+export async function loadPlanner(now = Date.now(), horizon = 7): Promise<PlannerData> {
   const settings = await getSettings();
   const today = todayKey(now, settings.dayStartHour);
   const [availability, storedTasks, plans, practice, decks, cards, logsToday, calendars] = await Promise.all([
@@ -132,7 +137,7 @@ export async function loadPlanner(now = Date.now()): Promise<PlannerData> {
     problemSubjects: recommendSubjects(practice, now, practice.dayEnd).map((s) => s.subject),
     now,
   };
-  const days = buildWeek(input);
+  const days = buildWeek(input, Math.max(1, horizon));
   // Today's plan is saved, so tomorrow knows what was planned and not done.
   await savePlans([days[0].plan]);
   return {
