@@ -166,6 +166,8 @@ textarea {
 }
 textarea {
   font-family: var(--mono);
+  /* The font shorthand above turns ligatures back on, so ">=" would look like a maths sign. */
+  font-variant-ligatures: none;
   font-size: 14px;
   line-height: 1.6;
   resize: vertical;

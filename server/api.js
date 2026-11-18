@@ -14,6 +14,7 @@ import {
   reconcile,
 } from './google.js';
 import { validChange } from './sync.js';
+import { createNotesReader, notesConfigured } from './notes.js';
 
 const TYPES = new Set(['classwork', 'smartered', 'assignment', 'other']);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -87,7 +88,7 @@ const isoDay = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
 const DEVICE = /^[\w-]{8,64}$/;
 
-export function createApi(store, syncStore) {
+export function createApi(store, syncStore, notes = createNotesReader()) {
   const client = createClient(store);
 
   async function handle(req, res, url) {
@@ -174,6 +175,16 @@ export function createApi(store, syncStore) {
           return send(res, 503, { error: "The server couldn't open its sync database. It needs Node 22.13 or newer." });
         }
         return send(res, 404, { error: 'Not found' });
+      }
+
+      // Lessons in the Obsidian notes that still need flashcards (see notes.js).
+      if (path === '/api/notes' && req.method === 'GET') {
+        if (!notesConfigured()) return send(res, 503, { error: 'The server has no NOTES_TOKEN yet. Add one in Railway to read your Obsidian notes.' });
+        try {
+          return send(res, 200, await notes.read());
+        } catch (e) {
+          return send(res, e.status ?? 502, { error: e instanceof Error ? e.message : 'Could not read the notes.' });
+        }
       }
 
       if (path === '/api/google/disconnect' && req.method === 'POST') {

@@ -4,6 +4,7 @@
 // calendars, and pushes due dates and study blocks to Google. Everything
 // else in the app keeps working offline; this just catches up later.
 
+import { planningSlot } from './planner/timeline';
 import {
   getCalendarCache,
   getSettings,
@@ -156,6 +157,19 @@ async function run(force: boolean): Promise<SyncResult> {
         const tasks = new Map(data.tasks.map((t) => [t.id, t]));
         const assessments = new Map(data.assessments.map((a) => [a.id, a]));
         const blocks = blockEvents(data.days, (it) => itemText(it, tasks, assessments, data.today).title);
+        // The weekly planning session goes on the study blocks calendar too.
+        for (const day of data.days) {
+          const slot = planningSlot(data.availability, day.date, data.input.context?.(day.date)?.busy ?? []);
+          if (!slot) continue;
+          const [y, m, d] = day.date.split('-').map(Number);
+          blocks.events.push({
+            key: `planning:${day.date}`,
+            title: 'Study: plan the week',
+            description: 'Weekly review in the Study App: look back, pick focus skills, check the week ahead.',
+            start: new Date(y, m - 1, d, 0, slot.start).toISOString(),
+            end: new Date(y, m - 1, d, 0, slot.end).toISOString(),
+          });
+        }
         await api(config.key, '/api/google/push', {
           method: 'POST',
           body: {

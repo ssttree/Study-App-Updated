@@ -23,10 +23,12 @@
   import { shortSubject } from '../lib/practice/load';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import { saveAvailability } from '../lib/db';
+  import { listWeeklyReviews, saveAvailability } from '../lib/db';
+  import { layoutDay, planningSlot, visibleRange, type DayLayout, type Span, type TimedItem } from '../lib/planner/timeline';
+  import { reviewWeek } from '../lib/progress/review';
   import { untrack } from 'svelte';
   import { KINDS } from '../lib/planner/labels';
-  import type { Availability, PlanItem, StudyWindow, Task } from '../lib/types';
+  import type { Availability, PlanItem, StudyWindow, Task, WeeklyReview } from '../lib/types';
 
   /** A date key: show that day in full instead of today. */
   let { day: dayProp }: { day?: string } = $props();
@@ -38,8 +40,10 @@
   let dragging = $state<string | null>(null);
   let over = $state<string | null>(null);
 
+  let reviews = $state.raw<WeeklyReview[]>([]);
+
   async function reload() {
-    data = await loadPlanner();
+    [data, reviews] = await Promise.all([loadPlanner(), listWeeklyReviews()]);
   }
   // Show what's here straight away, then again if the server brought homework or calendar changes.
   reload().then(async () => {
@@ -230,333 +234,498 @@
     act(() => saveAvailability(a));
   }
 
+  // The calendar: windows and items at their real times, work shifts, and the weekly planning session.
+  interface CalDay {
+    day: BuiltDay;
+    lay: DayLayout;
+    /** Items with their place in pixels, nudged down so short ones never overlap. */
+    items: { t: TimedItem; top: number; height: number }[];
+    shifts: Span[];
+    planning: (Span & { done: boolean }) | null;
+  }
+  interface Cal {
+    days: CalDay[];
+    range: Span;
+    hours: number[];
+    /** Long empty stretches (like school hours), squeezed to a thin strip. */
+    gaps: Span[];
+    /** Minutes after midnight to pixels down the calendar. */
+    y: (minutes: number) => number;
+    height: number;
+  }
+  const GAP_PX = 26;
+
+  function calendarOf(days: BuiltDay[], compact: boolean): Cal {
+    const ppm = compact ? 0.9 : 1.6;
+    const out = days.map((day) => {
+      const busy = data?.input.context?.(day.date)?.busy ?? [];
+      const slot = data ? planningSlot(data.input.availability, day.date, busy) : null;
+      const week = reviewWeek(day.date);
+      return {
+        day,
+        lay: layoutDay(day.windows, day.plan.items),
+        items: [] as CalDay['items'],
+        shifts: busy.map((b) => ({ start: b.start + SHIFT_BUFFER, end: b.end - SHIFT_BUFFER })).filter((b) => b.end > b.start),
+        planning: slot ? { ...slot, done: reviews.some((r) => r.week === week) } : null,
+      };
+    });
+    const spans = out.flatMap((c) => [...c.lay.windows, ...c.lay.items, ...c.shifts, ...(c.planning ? [c.planning] : [])]);
+    const range = visibleRange(spans);
+
+    // Squeeze empty stretches of two hours or more (whole hours only) so the busy parts stay big.
+    const merged: Span[] = [];
+    for (const sp of [...spans].sort((x, z) => x.start - z.start)) {
+      const last = merged[merged.length - 1];
+      if (last && sp.start <= last.end) last.end = Math.max(last.end, sp.end);
+      else merged.push({ ...sp });
+    }
+    const gaps: Span[] = [];
+    for (let i = 1; i < merged.length; i++) {
+      const start = Math.ceil(merged[i - 1].end / 60) * 60 + 30;
+      const end = Math.floor(merged[i].start / 60) * 60 - 30;
+      if (end - start >= 90) gaps.push({ start, end });
+    }
+    const y = (m: number) => {
+      let px = 0;
+      let at = range.start;
+      for (const g of gaps) {
+        if (m <= g.start) break;
+        px += (g.start - at) * ppm;
+        if (m < g.end) return px + ((m - g.start) / (g.end - g.start)) * GAP_PX;
+        px += GAP_PX;
+        at = g.end;
+      }
+      return px + (Math.min(m, range.end) - at) * ppm;
+    };
+    const hours: number[] = [];
+    for (let h = range.start; h < range.end; h += 60) if (!gaps.some((g) => h > g.start && h < g.end)) hours.push(h);
+
+    const minHeight = compact ? 18 : 30;
+    for (const c of out) {
+      let bottom = -Infinity;
+      for (const t of [...c.lay.items].sort((x, z) => x.start - z.start)) {
+        const top = Math.max(y(t.start), bottom + 2);
+        const height = Math.max(minHeight, y(t.end) - y(t.start));
+        c.items.push({ t, top, height });
+        bottom = top + height;
+      }
+    }
+    return { days: out, range, hours, gaps, y, height: y(range.end) };
+  }
+  const nowMinutes = $derived.by(() => {
+    if (!data) return 0;
+    const d = new Date(data.now);
+    return d.getHours() * 60 + d.getMinutes();
+  });
+  /** Top and height of a span on the calendar. */
+  function place(cal: Cal, s: Span, min = 0): string {
+    const top = cal.y(Math.max(s.start, cal.range.start));
+    return `top:${top}px;height:${Math.max(min, cal.y(Math.min(s.end, cal.range.end)) - top)}px`;
+  }
+  const spanText = (s: Span) => `${clockText(s.start)} to ${clockText(s.end)}`;
+
+  const planningLabel = $derived.by(() => {
+    if (!data) return '';
+    const p = data.input.availability.planning;
+    if (p === null) return 'off';
+    if (reviews.some((r) => r.week === reviewWeek(data!.today))) return 'done this week';
+    const t = p ?? { day: 0, start: '16:00' };
+    return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.day]} ${t.start}`;
+  });
+
   const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
 </script>
 
 <main class="page wide">
-  {#if data && today && shown && !isToday}
-    <section class="hero">
-      <div class="eyebrow"><a href={href('planner')}>Planner</a> / {dayLabel(shown.date, data.today)}</div>
-      <h1>{new Date(shown.date + 'T12:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
-      <p class="lead muted">
-        {minutesText(planned(shown))} planned in {plural(shown.windows.length, 'window')}. Tick, move or skip anything, or change
-        this day's windows below.
-      </p>
-      <div class="actions"><a class="btn" href={href('planner')}>Back to today</a></div>
-    </section>
-    {#each shown.warnings as w (w)}<div class="notice warn">{w}</div>{/each}
-    {#each shifts(shown.date) as s (s)}<div class="notice">{s}</div>{/each}
-  {:else if data && today}
-    <section class="hero">
-      <div class="eyebrow accent">
-        Planner · {new Date(data.now).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
-      </div>
-      {#if next}
-        {@const text = itemText(next, tasks, assessments, data.today)}
-        <h1>Next: {text.title}</h1>
-        <p class="lead muted">
-          {minutesText(next.minutes)} in {today.windows.find((w) => w.id === next.windowId)?.name ?? 'extra time'}. {text.detail}.
-        </p>
-        <div class="actions">
-          <a class="btn primary" href={itemLink(next, tasks)} onclick={() => startLink(today, next)}>Start</a>
-          <button class="btn" onclick={moreTime} disabled={busy}>I've got 20 more minutes</button>
-        </div>
-      {:else if today.windows.length === 0}
-        <h1>No study windows today</h1>
-        <p class="lead muted">Enjoy the day off. Your next windows are below.</p>
-        <div class="actions"><button class="btn" onclick={moreTime} disabled={busy}>I've got 20 minutes anyway</button></div>
-      {:else}
-        <h1>Today's plan is done</h1>
-        <p class="lead muted">Everything planned for today is ticked off or skipped.</p>
-        <div class="actions"><button class="btn primary" onclick={moreTime} disabled={busy}>I've got 20 more minutes</button></div>
-      {/if}
-    </section>
-
-    <section class="panel add">
-      <QuickAdd today={data.today} onadded={() => reload()} />
-    </section>
-
-    {#each today.warnings as w (w)}<div class="notice warn">{w}</div>{/each}
-    {#each slipping as t (t.id)}
-      <div class="notice warn">
-        The milestone "{t.title}" for {assessments.get(t.assessmentId!)?.name ?? 'an assignment'} is slipping, now
-        {dueLabel(t.due, data.today)}. <a href={href('planner', 'exam', t.assessmentId!)}>Look at the assignment</a>
-      </div>
-    {/each}
-
-    {#each asks as t (t.id)}
-      <div class="notice ask">
-        <div>
-          <strong>"{t.title}"</strong> has been carried over {t.carryOvers} times. What should happen to it?
-        </div>
-        <div class="ask-actions">
-          <label class="inline">
-            <span class="small">New due date</span>
-            <input type="date" value={t.due} onchange={(e) => newDate(t, e)} />
-          </label>
-          <button class="btn small" onclick={() => act(() => shrinkTask(t, Math.max(5, Math.round((t.minutes - t.spent) / 2))))}>
-            Shrink to {Math.max(5, Math.round((t.minutes - t.spent) / 2))} min
-          </button>
-          <button class="btn small danger" onclick={() => act(() => dropTask(t))}>Drop it</button>
-        </div>
-      </div>
-    {/each}
-
-  {/if}
-
   {#if data && today && shown}
-    <div class="view-bar">
-      <div class="seg" role="group" aria-label="Planner view">
-        <button class:on={view === 'day'} aria-pressed={view === 'day'} onclick={() => pickView('day')}>Day</button>
-        <button class:on={view === 'week'} aria-pressed={view === 'week'} onclick={() => pickView('week')}>Week</button>
-      </div>
-      <label class="auto" title="When off, spare study time stays free instead of getting problems, test prep and revision">
-        <input type="checkbox" checked={autoFill} onchange={toggleAutoFill} disabled={busy} />
-        <span>Auto fill study time</span>
-      </label>
-      {#if view === 'day'}
-        <div class="step">
-          {#if prevDay}<a class="btn small" href={dayHref(prevDay.date)} aria-label="Previous day">&larr; {dayLabel(prevDay.date, data.today)}</a>{/if}
-          {#if nextDay}<a class="btn small" href={dayHref(nextDay.date)} aria-label="Next day">{dayLabel(nextDay.date, data.today)} &rarr;</a>{/if}
-        </div>
-      {/if}
-    </div>
-
-    {#if view === 'day'}
-    <section>
-      <div class="section-head">
-        <h2>{isToday ? 'Today' : dayLabel(shown.date, data.today)}</h2>
-        <span class="mono muted small">{minutesText(planned(shown))} planned</span>
-      </div>
-      {#each groups(shown) as g (g.id)}
-        <div
-          class="window"
-          class:over={over === `${shown.date}|${g.id}`}
-          role="list"
-          ondragover={(e) => dragOver(e, `${shown.date}|${g.id}`)}
-          ondragleave={() => (over = null)}
-          ondrop={(e) => drop(e, shown.date, g.id)}
-        >
-          <div class="window-head">
-            <span class="wname">{g.window?.name ?? 'Extra time'}</span>
-            {#if g.window}
-              <span class="mono muted small">{windowTime(g.window)} · {KIND_TEXT[g.window.kind]}</span>
-              {#if shown.free[g.id] >= 5}<span class="mono dim small">{shown.free[g.id]} min free</span>{/if}
-            {/if}
-          </div>
-          {#each g.items as item (item.id)}
-            {@const text = itemText(item, tasks, assessments, data.today)}
-            {@const done = isDone(item, shown.date)}
-            <div
-              class="item"
-              class:done
-              class:skipped={item.status === 'skipped'}
-              role="listitem"
-              draggable={item.status === 'todo'}
-              ondragstart={(e) => dragStart(e, shown, item)}
-              ondragend={() => (dragging = over = null)}
-            >
-              <input
-                type="checkbox"
-                class="tick"
-                checked={done}
-                disabled={busy || item.status === 'skipped' || (item.kind === 'flashcards' && done && item.status !== 'done')}
-                aria-label="Done: {text.title}"
-                onchange={() => act(() => (item.status === 'done' ? reopenItem(shown, item, data!.tasks) : completeItem(shown, item, data!.tasks)))}
-              />
-              <span class="dot" style:background={itemColour(item)}></span>
-              <span class="what">
-                <span class="title">
-                  {text.title}
-                  {#if item.kind === 'homework' && item.taskId && (tasks.get(item.taskId)?.carryOvers ?? 0) > 0}
-                    <span class="tag">carried over</span>
-                  {/if}
-                  {#if item.pinned}<span class="tag pin">pinned</span>{/if}
-                  {#if item.optional}<span class="tag">optional</span>{/if}
-                </span>
-                <span class="muted small">{text.detail}</span>
-              </span>
-              <span class="mono small mins">{item.minutes} min</span>
-              <span class="tools">
-                {#if item.status === 'skipped'}
-                  <button class="btn small" onclick={() => act(() => reopenItem(shown, item, data!.tasks))}>Undo skip</button>
-                {:else if !done}
-                  <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(shown, item)}>Start</a>
-                  <details class="more">
-                    <summary class="btn small">More</summary>
-                    <div class="more-tools">
-                      {#if item.kind === 'problems' && subjects.length > 1}
-                        <label class="sr-only" for="subj-{item.id}">Problem subject</label>
-                        <select id="subj-{item.id}" class="mini" onchange={(e) => onSubject(shown, item, e)}>
-                          <option value="">Swap subject</option>
-                          {#each subjects.filter((s) => !item.subjects?.includes(s)) as s (s)}<option value={s}>{shortSubject(s)}</option>{/each}
-                        </select>
-                      {/if}
-                      <button class="btn small" onclick={() => act(() => togglePin(shown, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
-                      <button class="btn small" onclick={() => snooze(shown, item)} disabled={busy}>Tomorrow</button>
-                      <button class="btn small" onclick={() => act(() => skipItem(shown, item))}>Skip</button>
-                      <label class="sr-only" for="move-{item.id}">Move to</label>
-                      <select id="move-{item.id}" class="mini" onchange={(e) => onMove(shown, item, e)}>
-                        <option value="">Move to</option>
-                        {#each moveTargets() as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
-                      </select>
-                    </div>
-                  </details>
-                {/if}
-              </span>
-            </div>
-          {:else}
-            <p class="empty muted small">Nothing planned{g.window?.kind === 'flexible' ? ': no optional work waiting' : ''}.</p>
-          {/each}
-        </div>
-      {:else}
-        <p class="muted">No study windows {isToday ? 'today' : 'this day'}.</p>
-      {/each}
-    </section>
-
-
-    <section class="panel day-edit">
-      {#if editing}
-        <h2>Windows for {dayLabel(shown.date, data.today)}</h2>
-        {#each editing as w, i (w.id)}
-          <div class="edit-row">
-            <input class="name-in" type="text" bind:value={w.name} aria-label="Name" />
-            <input type="time" bind:value={w.start} aria-label="Starts" />
-            <input class="mins-in" type="number" min="5" step="5" bind:value={w.minutes} aria-label="Minutes" />
-            <select bind:value={w.kind} aria-label="Kind">
-              {#each KINDS as k (k)}<option value={k}>{KIND_TEXT[k]}</option>{/each}
-            </select>
-            <button class="btn small" onclick={() => editing!.splice(i, 1)}>Remove</button>
-          </div>
-        {:else}
-          <p class="muted small">No windows: a day off.</p>
-        {/each}
-        <div class="actions">
-          <button class="btn small" onclick={addWindow}>Add a window</button>
-          <button class="btn small primary" onclick={() => saveDay($state.snapshot(editing))} disabled={busy}>Save this day</button>
-          <button class="btn small" onclick={() => (editing = null)}>Cancel</button>
-        </div>
-      {:else}
-        <div class="day-edit-line">
-          <span class="muted small grow">
-            {isOneOff ? 'This day has its own windows.' : 'This day uses your normal weekly windows.'}
-            Changes here only affect {isToday ? 'today' : 'this day'}.
-          </span>
-          <button class="btn small" onclick={editWindows}>Change this day's windows</button>
-          {#if isOneOff}
-            <button class="btn small" onclick={() => saveDay(null)} disabled={busy}>Back to normal</button>
-          {:else}
-            <button class="btn small" onclick={() => saveDay([])} disabled={busy}>Make it a day off</button>
-          {/if}
-        </div>
-      {/if}
-    </section>
+    {#if !isToday}
+      <section class="hero">
+        <div class="eyebrow"><a href={href('planner')}>Planner</a> / {dayLabel(shown.date, data.today)}</div>
+        <h1>{new Date(shown.date + 'T12:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
+        <p class="lead muted">
+          {minutesText(planned(shown))} planned in {plural(shown.windows.length, 'window')}. Tick, move or skip anything, or change
+          this day's windows under the calendar.
+        </p>
+        <div class="actions"><a class="btn" href={href('planner')}>Back to today</a></div>
+      </section>
+      {#each shown.warnings as w (w)}<div class="notice warn">{w}</div>{/each}
     {:else}
-
-    <section>
-      <div class="section-head">
-        <h2>This week</h2>
-        <span class="muted small">Drag anything to another window or day. Moving it pins it there.</span>
-      </div>
-      <div class="week">
-        {#each data.days as day (day.date)}
-          <div class="day" class:today={day.date === data.today} class:selected={day.date === shown.date}>
-            <a class="day-head" href={dayHref(day.date)} title="Open this day">
-              <strong>{dayLabel(day.date, data.today)}</strong>
-              <span class="mono dim small">{minutesText(planned(day))}</span>
-            </a>
-            {#each day.warnings as w (w)}<div class="mini-warn small" title={w}>Homework won't fit</div>{/each}
-            {#each shifts(day.date) as s (s)}<div class="shift mono">{s}</div>{/each}
-            {#each groups(day) as g (g.id)}
-              <div
-                class="slot"
-                class:over={over === `${day.date}|${g.id}`}
-                role="list"
-                aria-label="{dayLabel(day.date, data.today)}, {g.window?.name ?? 'Extra time'}"
-                ondragover={(e) => dragOver(e, `${day.date}|${g.id}`)}
-                ondragleave={() => (over = null)}
-                ondrop={(e) => drop(e, day.date, g.id)}
-              >
-                <div class="slot-name mono dim">{g.window ? `${g.window.start} ${g.window.name}` : 'Extra'}</div>
-                {#each g.items as item (item.id)}
-                  {@const text = itemText(item, tasks, assessments, data.today)}
-                  <div
-                    class="chip"
-                    class:done={isDone(item, day.date)}
-                    class:skipped={item.status === 'skipped'}
-                    class:pinned={item.pinned}
-                    role="listitem"
-                    draggable={item.status === 'todo'}
-                    ondragstart={(e) => dragStart(e, day, item)}
-                    ondragend={() => (dragging = over = null)}
-                    title="{text.title} · {item.minutes} min"
-                  >
-                    <span class="dot" style:background={itemColour(item)}></span>
-                    <span class="chip-text">{text.title}</span>
-                    <span class="mono dim">{item.minutes}</span>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <div class="slot-name mono dim">No windows</div>
-            {/each}
+      <section class="hero">
+        <div class="eyebrow accent">
+          Planner · {new Date(data.now).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </div>
+        {#if next}
+          {@const text = itemText(next, tasks, assessments, data.today)}
+          <h1>Next: {text.title}</h1>
+          <p class="lead muted">
+            {minutesText(next.minutes)} in {today.windows.find((w) => w.id === next.windowId)?.name ?? 'extra time'}. {text.detail}.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href={itemLink(next, tasks)} onclick={() => startLink(today, next)}>Start</a>
+            <button class="btn" onclick={moreTime} disabled={busy}>I've got 20 more minutes</button>
           </div>
-        {/each}
-      </div>
-    </section>
+        {:else if today.windows.length === 0}
+          <h1>No study windows today</h1>
+          <p class="lead muted">Enjoy the day off.</p>
+          <div class="actions"><button class="btn" onclick={moreTime} disabled={busy}>I've got 20 minutes anyway</button></div>
+        {:else}
+          <h1>Today's plan is done</h1>
+          <p class="lead muted">Everything planned for today is ticked off or skipped.</p>
+          <div class="actions"><button class="btn primary" onclick={moreTime} disabled={busy}>I've got 20 more minutes</button></div>
+        {/if}
+      </section>
+
+      {#each today.warnings as w (w)}<div class="notice warn">{w}</div>{/each}
+      {#each slipping as t (t.id)}
+        <div class="notice warn">
+          The milestone "{t.title}" for {assessments.get(t.assessmentId!)?.name ?? 'an assignment'} is slipping, now
+          {dueLabel(t.due, data.today)}. <a href={href('planner', 'exam', t.assessmentId!)}>Look at the assignment</a>
+        </div>
+      {/each}
+      {#each asks as t (t.id)}
+        <div class="notice ask">
+          <div>
+            <strong>"{t.title}"</strong> has been carried over {t.carryOvers} times. What should happen to it?
+          </div>
+          <div class="ask-actions">
+            <label class="inline">
+              <span class="small">New due date</span>
+              <input type="date" value={t.due} onchange={(e) => newDate(t, e)} />
+            </label>
+            <button class="btn small" onclick={() => act(() => shrinkTask(t, Math.max(5, Math.round((t.minutes - t.spent) / 2))))}>
+              Shrink to {Math.max(5, Math.round((t.minutes - t.spent) / 2))} min
+            </button>
+            <button class="btn small danger" onclick={() => act(() => dropTask(t))}>Drop it</button>
+          </div>
+        </div>
+      {/each}
     {/if}
 
-    <section class="links">
-      <a class="row link" href={href('planner', 'homework')}>
-        <span class="dot" style:background="var(--good)"></span>
-        <span class="name">Homework list</span>
-        <span class="mono muted small">{plural(data.tasks.filter((t) => t.status === 'open').length, 'task')} open</span>
-      </a>
-      <a class="row link" href={href('planner', 'exams')}>
-        <span class="dot" style:background="var(--warn)"></span>
-        <span class="name">Exams and assessments</span>
-        <span class="mono muted small">
-          {#if soon.length}{soon.map((a) => `${a.name} (${STAGE_LABEL[stageOf(a, data!.today)]})`).join(', ')}{:else}none in prep{/if}
-        </span>
-      </a>
-      <a class="row link" href={href('planner', 'connect')}>
-        <span class="dot" style:background="var(--info)"></span>
-        <span class="name">Phone and Google Calendar</span>
-        <span class="mono muted small">quick add on your phone, due dates and study blocks in Google</span>
-      </a>
-      <a class="row link" href={href('planner', 'windows')}>
-        <span class="dot"></span>
-        <span class="name">Study windows</span>
-        <span class="mono muted small">when you can study each week, soccer season, one-off days</span>
-      </a>
-    </section>
+    <div class="layout">
+      <div class="main-col">
+        <div class="view-bar">
+          <div class="seg" role="group" aria-label="Planner view">
+            <button class:on={view === 'day'} aria-pressed={view === 'day'} onclick={() => pickView('day')}>Day</button>
+            <button class:on={view === 'week'} aria-pressed={view === 'week'} onclick={() => pickView('week')}>Week</button>
+          </div>
+          {#if view === 'day'}
+            <div class="step">
+              {#if prevDay}<a class="btn small" href={dayHref(prevDay.date)} aria-label="Previous day">&larr; {dayLabel(prevDay.date, data.today)}</a>{/if}
+              <strong class="step-now">{dayLabel(shown.date, data.today)}</strong>
+              {#if nextDay}<a class="btn small" href={dayHref(nextDay.date)} aria-label="Next day">{dayLabel(nextDay.date, data.today)} &rarr;</a>{/if}
+            </div>
+          {:else}
+            <span class="muted small">Drag a block to another window to move it there.</span>
+          {/if}
+        </div>
+
+        {#if view === 'day'}
+          {@const cal = calendarOf([shown], false)}
+          {@render calendar(cal, false)}
+          {@render looseItems(shown, cal.days[0].lay.loose)}
+
+          <section class="day-edit">
+            {#if editing}
+              <h2>Windows for {dayLabel(shown.date, data.today)}</h2>
+              {#each editing as w, i (w.id)}
+                <div class="edit-row">
+                  <input class="name-in" type="text" bind:value={w.name} aria-label="Name" />
+                  <input type="time" bind:value={w.start} aria-label="Starts" />
+                  <input class="mins-in" type="number" min="5" step="5" bind:value={w.minutes} aria-label="Minutes" />
+                  <select bind:value={w.kind} aria-label="Kind">
+                    {#each KINDS as k (k)}<option value={k}>{KIND_TEXT[k]}</option>{/each}
+                  </select>
+                  <button class="btn small" onclick={() => editing!.splice(i, 1)}>Remove</button>
+                </div>
+              {:else}
+                <p class="muted small">No windows: a day off.</p>
+              {/each}
+              <div class="actions">
+                <button class="btn small" onclick={addWindow}>Add a window</button>
+                <button class="btn small primary" onclick={() => saveDay($state.snapshot(editing))} disabled={busy}>Save this day</button>
+                <button class="btn small" onclick={() => (editing = null)}>Cancel</button>
+              </div>
+            {:else}
+              <div class="day-edit-line">
+                <span class="muted small grow">
+                  {minutesText(planned(shown))} planned.
+                  {isOneOff ? 'This day has its own windows.' : 'Uses your normal weekly windows.'}
+                </span>
+                <button class="btn small" onclick={editWindows}>Change this day's windows</button>
+                {#if isOneOff}
+                  <button class="btn small" onclick={() => saveDay(null)} disabled={busy}>Back to normal</button>
+                {:else}
+                  <button class="btn small" onclick={() => saveDay([])} disabled={busy}>Make it a day off</button>
+                {/if}
+              </div>
+            {/if}
+          </section>
+        {:else}
+          <div class="week-scroll">
+            {@render calendar(calendarOf(data.days, true), true)}
+          </div>
+        {/if}
+      </div>
+
+      <aside class="side">
+        <section class="panel add">
+          <QuickAdd today={data.today} onadded={() => reload()} />
+        </section>
+
+        <label class="auto panel" title="When off, spare study time stays free instead of getting problems, test prep and revision">
+          <input type="checkbox" checked={autoFill} onchange={toggleAutoFill} disabled={busy} />
+          <span>
+            <strong>Auto fill study time</strong>
+            <span class="muted small">{autoFill ? 'Spare time gets problems, test prep and revision.' : 'Spare time is left free.'}</span>
+          </span>
+        </label>
+
+        <nav class="links">
+          <a class="link" href={href('planner', 'homework')}>
+            <span class="dot" style:background="var(--good)"></span>
+            <span class="name">Homework</span>
+            <span class="mono muted small">{data.tasks.filter((t) => t.status === 'open').length} open</span>
+          </a>
+          <a class="link" href={href('planner', 'exams')}>
+            <span class="dot" style:background="var(--warn)"></span>
+            <span class="name">Exams</span>
+            <span class="mono muted small">{soon.length ? `${soon.length} in prep` : 'none in prep'}</span>
+          </a>
+          <a class="link" href={href('progress', 'review')}>
+            <span class="dot" style:background="var(--accent)"></span>
+            <span class="name">Plan the week</span>
+            <span class="mono muted small">{planningLabel}</span>
+          </a>
+          <a class="link" href={href('planner', 'windows')}>
+            <span class="dot"></span>
+            <span class="name">Study windows</span>
+            <span class="mono muted small">weekly times</span>
+          </a>
+          <a class="link" href={href('planner', 'connect')}>
+            <span class="dot" style:background="var(--info)"></span>
+            <span class="name">Phone and Google</span>
+            <span class="mono muted small">quick add, calendars</span>
+          </a>
+        </nav>
+      </aside>
+    </div>
   {/if}
 </main>
+
+{#snippet calendar(cal: Cal, compact: boolean)}
+  <div class="cal" class:compact style:--cols={cal.days.length}>
+    {#if compact}
+      <div class="cal-heads">
+        <span></span>
+        {#each cal.days as c (c.day.date)}
+          <a class="cal-head" class:today={c.day.date === data!.today} href={dayHref(c.day.date)} title="Open this day">
+            <strong>{dayLabel(c.day.date, data!.today)}</strong>
+            <span class="mono dim small">{minutesText(planned(c.day))}</span>
+            {#if c.day.warnings.length}<span class="mini-warn" title={c.day.warnings.join(' ')}>Homework won't fit</span>{/if}
+          </a>
+        {/each}
+      </div>
+    {/if}
+    <div class="cal-body" style:height="{cal.height}px">
+      <div class="hours" aria-hidden="true">
+        {#each cal.hours as h (h)}<span style:top="{cal.y(h)}px">{clockText(h)}</span>{/each}
+      </div>
+      {#each cal.gaps as g (g.start)}
+        <div class="gap" style:top="{cal.y(g.start)}px" style:height="{GAP_PX}px" title="{spanText(g)}: nothing planned">
+          <span class="mono dim">{spanText(g)}</span>
+        </div>
+      {/each}
+      {#each cal.days as c (c.day.date)}
+        {@const day = c.day}
+        <div class="col" class:today={day.date === data!.today}>
+          {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
+          {#each c.shifts as s (s.start)}
+            <div class="shift" style={place(cal, s)} title="Work {spanText(s)}">
+              <span class="mono small">Work {spanText(s)}</span>
+            </div>
+          {/each}
+
+          {#each c.lay.windows as tw (tw.window.id)}
+            {@const zone = `${day.date}|${tw.window.id}`}
+            <div
+              class="band kind-{tw.window.kind}"
+              class:over={over === zone}
+              style={place(cal, tw)}
+              role="group"
+              aria-label="{dayLabel(day.date, data!.today)}, {tw.window.name}"
+              ondragover={(e) => dragOver(e, zone)}
+              ondragleave={() => (over = null)}
+              ondrop={(e) => drop(e, day.date, tw.window.id)}
+              title="{tw.window.name} · {windowTime(tw.window)} · {KIND_TEXT[tw.window.kind]}"
+            >
+              {#if !compact}
+                <span class="band-label">
+                  <span>{tw.window.name}</span>
+                  <span class="mono dim">{KIND_TEXT[tw.window.kind]}{day.free[tw.window.id] >= 5 ? ` · ${day.free[tw.window.id]} min free` : ''}</span>
+                </span>
+              {/if}
+            </div>
+          {/each}
+
+          {#each c.items as p (p.t.item.id)}
+            {@const pos = `top:${p.top}px;height:${p.height}px`}
+            {#if compact}{@render chip(day, p.t, pos)}{:else}{@render block(day, p.t, pos, p.height)}{/if}
+          {/each}
+
+          {#if c.planning}
+            <a
+              class="planning"
+              class:done={c.planning.done}
+              style={place(cal, c.planning, compact ? 22 : 30)}
+              href={href('progress', 'review')}
+              title="Weekly planning: look back, pick focus skills, check the week ahead"
+            >
+              <span class="blk-title">{c.planning.done ? '✓ ' : ''}{compact ? 'Plan week' : 'Plan the week'}</span>
+              {#if !compact}<span class="mono small blk-time">{spanText(c.planning)} · weekly review</span>{/if}
+            </a>
+          {/if}
+
+          {#if day.date === data!.today && nowMinutes > cal.range.start && nowMinutes < cal.range.end && !cal.gaps.some((g) => nowMinutes > g.start && nowMinutes < g.end)}
+            <div class="now" style:top="{cal.y(nowMinutes)}px" aria-label="Now"></div>
+          {/if}
+          {#if !c.lay.windows.length && !c.planning}
+            <span class="free-day muted small">No study windows</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </div>
+{/snippet}
+
+{#snippet block(day: BuiltDay, t: TimedItem, pos: string, height: number)}
+  {@const item = t.item}
+  {@const text = itemText(item, tasks, assessments, data!.today)}
+  {@const done = isDone(item, day.date)}
+  {@const tall = height >= 48}
+  <div
+    class="blk"
+    class:done
+    class:tall
+    class:pinned={item.pinned}
+    style={pos}
+    style:--c={itemColour(item)}
+    role="group"
+    draggable={item.status === 'todo'}
+    ondragstart={(e) => dragStart(e, day, item)}
+    ondragend={() => (dragging = over = null)}
+  >
+    <input
+      type="checkbox"
+      class="tick"
+      checked={done}
+      disabled={busy || (item.kind === 'flashcards' && done && item.status !== 'done')}
+      aria-label="Done: {text.title}"
+      onchange={() => act(() => (item.status === 'done' ? reopenItem(day, item, data!.tasks) : completeItem(day, item, data!.tasks)))}
+    />
+    <span class="blk-main">
+      <span class="blk-title">
+        {text.title}
+        {#if item.kind === 'homework' && item.taskId && (tasks.get(item.taskId)?.carryOvers ?? 0) > 0}<span class="tag">carried over</span>{/if}
+        {#if item.optional}<span class="tag">optional</span>{/if}
+      </span>
+      <span class="mono small blk-time">{spanText(t)} · {item.minutes} min{tall && text.detail ? ` · ${text.detail}` : ''}</span>
+    </span>
+    {#if !done}
+      <span class="tools">
+        <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
+        {@render moreMenu(day, item)}
+      </span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet chip(day: BuiltDay, t: TimedItem, pos: string)}
+  {@const item = t.item}
+  {@const text = itemText(item, tasks, assessments, data!.today)}
+  <a
+    class="chip"
+    class:done={isDone(item, day.date)}
+    class:pinned={item.pinned}
+    style={pos}
+    style:--c={itemColour(item)}
+    href={dayHref(day.date)}
+    draggable={item.status === 'todo'}
+    ondragstart={(e) => dragStart(e, day, item)}
+    ondragend={() => (dragging = over = null)}
+    title="{text.title} · {spanText(t)} · {item.minutes} min"
+  >
+    <span class="chip-text">{text.title}</span>
+  </a>
+{/snippet}
+
+{#snippet moreMenu(day: BuiltDay, item: PlanItem)}
+  <details class="more">
+    <summary class="btn small">More</summary>
+    <div class="more-tools">
+      {#if item.kind === 'problems' && subjects.length > 1}
+        <label class="sr-only" for="subj-{item.id}">Problem subject</label>
+        <select id="subj-{item.id}" class="mini" onchange={(e) => onSubject(day, item, e)}>
+          <option value="">Swap subject</option>
+          {#each subjects.filter((s) => !item.subjects?.includes(s)) as s (s)}<option value={s}>{shortSubject(s)}</option>{/each}
+        </select>
+      {/if}
+      <button class="btn small" onclick={() => act(() => togglePin(day, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
+      <button class="btn small" onclick={() => snooze(day, item)} disabled={busy}>Tomorrow</button>
+      <button class="btn small" onclick={() => act(() => skipItem(day, item))}>Skip</button>
+      <label class="sr-only" for="move-{item.id}">Move to</label>
+      <select id="move-{item.id}" class="mini" onchange={(e) => onMove(day, item, e)}>
+        <option value="">Move to</option>
+        {#each moveTargets() as m (m.value)}<option value={m.value}>{m.label}</option>{/each}
+      </select>
+    </div>
+  </details>
+{/snippet}
+
+{#snippet looseItems(day: BuiltDay, items: PlanItem[])}
+  {#if items.length}
+    <section class="loose">
+      {#each items as item (item.id)}
+        {@const text = itemText(item, tasks, assessments, data!.today)}
+        {@const done = isDone(item, day.date)}
+        <div class="loose-item" class:done={done || item.status === 'skipped'}>
+          <span class="dot" style:background={itemColour(item)}></span>
+          <span class="grow">
+            {text.title}
+            <span class="muted small">· {item.status === 'skipped' ? 'skipped' : 'extra time'} · {item.minutes} min</span>
+          </span>
+          {#if item.status === 'skipped'}
+            <button class="btn small" onclick={() => act(() => reopenItem(day, item, data!.tasks))}>Undo skip</button>
+          {:else if !done}
+            <button class="btn small" onclick={() => act(() => completeItem(day, item, data!.tasks))}>Done</button>
+            <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
+          {/if}
+        </div>
+      {/each}
+    </section>
+  {/if}
+{/snippet}
 
 <style>
   .hero {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
   }
   h1 {
-    font-size: 40px;
+    font-size: 34px;
     font-weight: 700;
     letter-spacing: -0.01em;
   }
   .lead {
     margin: 0;
-    font-size: 18px;
+    font-size: 17px;
     max-width: 640px;
   }
   .actions {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-top: 8px;
-  }
-  .add {
-    padding: 16px 18px;
+    margin-top: 6px;
   }
   .ask {
     display: flex;
@@ -583,26 +752,50 @@
     color: var(--text);
     font: 400 14px var(--font);
   }
+  h2 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .small {
+    font-size: 13px;
+  }
+  .dim {
+    color: var(--dim);
+  }
+  .grow {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  /* Page layout: the calendar, with quick add and links beside it. */
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 28px;
+    align-items: start;
+  }
+  .main-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: sticky;
+    top: 16px;
+  }
+  .add {
+    padding: 14px 16px;
+  }
   .view-bar {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    justify-content: space-between;
+    gap: 10px 16px;
     align-items: center;
-  }
-  .auto {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 14px;
-    margin-right: auto;
-  }
-  .auto input {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent);
   }
   .seg {
     display: flex;
@@ -612,9 +805,9 @@
     border-radius: 22px;
   }
   .seg button {
-    min-height: 38px;
+    min-height: 36px;
     padding: 0 18px;
-    border-radius: 19px;
+    border-radius: 18px;
     border: 0;
     background: transparent;
     color: var(--muted);
@@ -627,95 +820,271 @@
   }
   .step {
     display: flex;
-    gap: 8px;
-  }
-  .section-head {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
-  }
-  h2 {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-  }
-  .small {
-    font-size: 13px;
-  }
-  .dim {
-    color: var(--dim);
-  }
-  .window {
-    border-top: 1px solid var(--line);
-    padding: 14px 0 8px;
-    border-radius: 4px;
-  }
-  .window.over,
-  .slot.over {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-    outline: 1px dashed var(--accent);
-  }
-  .window-head {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 14px;
-    align-items: baseline;
-    margin-bottom: 6px;
-  }
-  .wname {
-    font-weight: 700;
-  }
-  .item {
-    display: flex;
-    flex-wrap: wrap;
+    gap: 10px;
     align-items: center;
-    gap: 6px 14px;
-    padding: 10px 0;
-    cursor: grab;
+    margin-left: auto;
   }
-  .item.done .title,
-  .item.skipped .title {
-    text-decoration: line-through;
-    color: var(--muted);
+  .step-now {
+    font-size: 14px;
+    min-width: 70px;
+    text-align: center;
   }
-  .tick {
-    width: 20px;
-    height: 20px;
+  .auto {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    cursor: pointer;
+    padding: 14px 16px;
+  }
+  .auto > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 14px;
+  }
+  .auto input {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
     accent-color: var(--accent);
     flex: none;
   }
-  .what {
-    flex: 1 1 260px;
+  .links {
     display: flex;
     flex-direction: column;
+  }
+  .link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 4px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .link:hover .name {
+    color: var(--accent);
+  }
+  .name {
+    flex: 1;
+  }
+
+  /* The calendar. */
+  .cal {
+    --gutter: 46px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 12px 12px 12px 0;
+  }
+  .cal-heads {
+    display: grid;
+    grid-template-columns: var(--gutter) repeat(var(--cols), minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .cal-head {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    color: inherit;
+    text-decoration: none;
+    font-size: 13px;
+    min-width: 0;
+  }
+  .cal-head:hover {
+    background: var(--surface-2);
+  }
+  .cal-head.today {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .cal-body {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--gutter) repeat(var(--cols), minmax(0, 1fr));
+    gap: 6px;
+  }
+  .hours {
+    position: relative;
+  }
+  .hours span {
+    position: absolute;
+    right: 8px;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .hours span:first-child {
+    transform: none;
+  }
+  .col {
+    position: relative;
+    min-width: 0;
+  }
+  .hline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--line);
+  }
+  .gap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    background: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 8px) center / 100% 1px no-repeat, var(--surface);
+    pointer-events: none;
+  }
+  .gap span {
+    background: var(--surface);
+    padding: 0 8px;
+  }
+  .col.today {
+    background-color: color-mix(in srgb, var(--accent) 4%, transparent);
+  }
+  .free-day {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+  }
+  .shift {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-radius: 8px;
+    background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, transparent 6px 12px);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    padding: 4px 8px;
+    overflow: hidden;
+  }
+  .band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-radius: 8px;
+    border: 1px dashed var(--line-strong);
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  }
+  .band.over {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+  }
+  .band-label {
+    position: absolute;
+    right: 10px;
+    top: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+    max-width: 130px;
+    pointer-events: none;
+  }
+  .blk,
+  .chip,
+  .planning {
+    position: absolute;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    box-shadow: inset 3px 0 0 var(--c, var(--accent));
+  }
+  .blk {
+    left: 4px;
+    right: 148px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 8px 2px 12px;
+    cursor: grab;
+    z-index: 1;
+  }
+  .blk.tall {
+    align-items: flex-start;
+    padding-top: 7px;
+  }
+  .blk:hover,
+  .blk:focus-within {
+    z-index: 3;
+    border-color: var(--muted);
+  }
+  .blk.pinned {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--line-strong));
+  }
+  .blk-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .blk:not(.tall) .blk-main {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .blk-title {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .blk-time {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .blk.done {
+    opacity: 0.55;
+  }
+  .blk.done .blk-title {
+    text-decoration: line-through;
+  }
+  .tick {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    flex: none;
+    margin: 0;
+  }
+  .blk.tall .tick {
+    margin-top: 1px;
   }
   .tag {
     font-family: var(--mono);
     font-size: 11px;
-    padding: 1px 7px;
+    font-weight: 400;
+    padding: 0 6px;
     margin-left: 6px;
     border-radius: 10px;
     border: 1px solid var(--line-strong);
     color: var(--muted);
-    vertical-align: 2px;
-    text-decoration: none;
-    display: inline-block;
-  }
-  .tag.pin {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .mins {
-    color: var(--muted);
-    min-width: 56px;
   }
   .tools {
     display: flex;
-    flex-wrap: wrap;
     gap: 6px;
+    flex: none;
+  }
+  .tools :global(.btn.small) {
+    min-height: 26px;
+    padding: 0 10px;
+    font-size: 13px;
   }
   .more {
     position: relative;
@@ -726,14 +1095,11 @@
   .more summary::-webkit-details-marker {
     display: none;
   }
-  .more[open] summary {
-    border-color: var(--muted);
-  }
   .more-tools {
     position: absolute;
     right: 0;
     top: calc(100% + 6px);
-    z-index: 5;
+    z-index: 10;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -750,55 +1116,107 @@
     font-size: 14px;
     border-radius: 18px;
   }
-  .empty {
-    margin: 0;
-    padding: 4px 0 8px;
-  }
-  .week {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(140px, 1fr));
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 6px;
-  }
-  .day {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 10px;
+  .planning {
+    left: 4px;
+    right: 4px;
+    --c: var(--accent);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    min-width: 0;
-  }
-  .day.today {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .day-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-size: 14px;
-    color: inherit;
+    justify-content: center;
+    padding: 2px 10px 2px 12px;
+    color: var(--text);
     text-decoration: none;
-    border-radius: 6px;
-    padding: 2px 4px;
-    margin: -2px -4px;
-  }
-  .day-head:hover strong {
-    text-decoration: underline;
-  }
-  .day.selected {
+    border-style: dashed;
     border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    z-index: 1;
+    overflow: hidden;
   }
+  .planning.done {
+    opacity: 0.55;
+    border-style: solid;
+  }
+  .compact .planning .blk-title {
+    font-size: 11px;
+  }
+  .chip {
+    left: 2px;
+    right: 2px;
+    display: flex;
+    align-items: flex-start;
+    padding: 2px 4px 2px 8px;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: var(--text);
+    text-decoration: none;
+    overflow: hidden;
+    cursor: grab;
+    z-index: 1;
+  }
+  .chip.done {
+    opacity: 0.5;
+  }
+  .chip.done .chip-text {
+    text-decoration: line-through;
+  }
+  .chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .now {
+    position: absolute;
+    left: -4px;
+    right: 0;
+    height: 2px;
+    background: var(--warn);
+    z-index: 4;
+    pointer-events: none;
+  }
+  .now::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+  .week-scroll {
+    overflow-x: auto;
+  }
+  .week-scroll .cal {
+    min-width: 760px;
+  }
+  .mini-warn {
+    color: var(--warn);
+    font-size: 11px;
+  }
+
+  /* Extra time and skipped items, which have no set time. */
+  .loose {
+    display: flex;
+    flex-direction: column;
+  }
+  .loose-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .loose-item.done .grow {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+
   .day-edit {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 16px;
-  }
-  .day-edit h2 {
-    font-size: 15px;
   }
   .day-edit-line,
   .edit-row {
@@ -813,73 +1231,28 @@
   .edit-row .mins-in {
     width: 80px;
   }
-  .grow {
-    flex: 1 1 240px;
-  }
-  .slot {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-height: 34px;
-    padding: 4px;
-    border-radius: 6px;
-  }
-  .slot-name {
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .chip {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 7px;
-    border-radius: 6px;
-    background: var(--surface-2);
-    font-size: 12px;
-    cursor: grab;
-  }
-  .chip.pinned {
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-  .chip.done .chip-text,
-  .chip.skipped .chip-text {
-    text-decoration: line-through;
-    color: var(--dim);
-  }
-  .chip-text {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .shift {
-    font-size: 11px;
-    color: var(--info);
-  }
-  .mini-warn {
-    color: var(--warn);
-    font-size: 11px;
-  }
-  .link {
-    color: var(--text);
-    text-decoration: none;
-    min-height: 52px;
-  }
-  .link:hover .name {
-    color: var(--accent);
-  }
-  .name {
-    flex: 1 1 220px;
+
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .side {
+      position: static;
+    }
   }
   @media (max-width: 640px) {
     h1 {
-      font-size: 32px;
+      font-size: 28px;
     }
-    .week {
-      grid-template-columns: repeat(7, 150px);
+    .blk {
+      right: 4px;
+    }
+    .band-label,
+    .blk:not(.tall) .blk-time {
+      display: none;
+    }
+    .step {
+      margin-left: 0;
     }
   }
 </style>

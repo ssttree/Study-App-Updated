@@ -74,6 +74,7 @@
           <a class="btn primary" href={href('practice', 'import')}>Import SmarterEd PDFs</a>
           <a class="btn" href={href('practice', 'atar')}>Add an ATAR Notes topic test</a>
           <a class="btn" href={href('practice', 'write')}>Type a question</a>
+          <a class="btn" href={href('practice', 'file')}>Questions file from Claude</a>
         </div>
       </section>
     {:else if view.ranked.length === 0}
@@ -169,6 +170,7 @@
           <a class="btn" href={href('practice', 'atar')}>ATAR Notes topic test</a>
           <a class="btn" href={href('practice', 'import')}>Past HSC paper</a>
           <a class="btn" href={href('practice', 'write')}>Type a question</a>
+          <a class="btn" href={href('practice', 'file')}>Questions file from Claude</a>
         </div>
       </section>
       {/if}

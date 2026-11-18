@@ -24,6 +24,7 @@ export function areaFor(route: Route['name']): FixArea {
     case 'pdfImport':
     case 'atarImport':
     case 'writeQuestion':
+    case 'questionsImport':
     case 'practiceRun':
       return 'Practice';
     case 'homework':
