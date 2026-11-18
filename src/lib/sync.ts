@@ -192,7 +192,8 @@ async function run(force: boolean): Promise<SyncResult> {
 
 /** Fetches the chosen calendars for the next three weeks and keeps a copy. */
 export async function readCalendars(config: SyncConfig): Promise<boolean> {
-  const ids = [config.workCalendarId, config.timetableCalendarId].filter(Boolean);
+  const others = (config.otherCalendarIds ?? []).filter((id) => id && id !== config.workCalendarId && id !== config.timetableCalendarId).slice(0, 3);
+  const ids = [config.workCalendarId, config.timetableCalendarId, ...others].filter(Boolean);
   if (!ids.length) {
     await saveCalendarCache(null);
     return false;
@@ -212,6 +213,7 @@ export async function readCalendars(config: SyncConfig): Promise<boolean> {
     to,
     work: (events[config.workCalendarId] ?? []).map(toCalEvent),
     timetable: (events[config.timetableCalendarId] ?? []).map(toCalEvent),
+    other: others.flatMap((id) => (events[id] ?? []).map(toCalEvent)),
   };
   await saveCalendarCache(cache);
   return true;

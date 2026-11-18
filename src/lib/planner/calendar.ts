@@ -25,6 +25,44 @@ export interface CalendarCache {
   to: string;
   work: CalEvent[];
   timetable: CalEvent[];
+  /** Other calendars picked to show on the planner. Missing in older copies. */
+  other?: CalEvent[];
+}
+
+/** An event on one day, in minutes after midnight. */
+export interface DayEvent {
+  title: string;
+  start: number;
+  end: number;
+  kind: 'lesson' | 'work' | 'other';
+}
+
+/** Everything from your calendars on one day: timed events for the planner, and all-day ones as titles. */
+export function dayEvents(cache: CalendarCache | null, key: string): { timed: DayEvent[]; allDay: string[] } {
+  if (!cache || key < cache.from || key > cache.to) return { timed: [], allDay: [] };
+  const dayStart = keyToTime(key);
+  const dayEnd = keyToTime(addDays(key, 1));
+  const timed: DayEvent[] = [];
+  const allDay: string[] = [];
+  const add = (list: CalEvent[] | undefined, kind: DayEvent['kind']) => {
+    for (const e of list ?? []) {
+      if (e.start >= dayEnd || e.end <= dayStart) continue;
+      if (e.allDay) {
+        if (!allDay.includes(e.title)) allDay.push(e.title);
+        continue;
+      }
+      timed.push({
+        title: e.title || (kind === 'work' ? 'Work' : 'Busy'),
+        start: Math.max(0, Math.round((e.start - dayStart) / 60_000)),
+        end: Math.min(24 * 60, Math.round((e.end - dayStart) / 60_000)),
+        kind,
+      });
+    }
+  };
+  add(cache.timetable, 'lesson');
+  add(cache.work, 'work');
+  add(cache.other, 'other');
+  return { timed: timed.sort((a, b) => a.start - b.start || a.end - b.end), allDay };
 }
 
 export const SHIFT_BUFFER = 30;

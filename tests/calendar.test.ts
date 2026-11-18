@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyContext, defaultAvailability, windowsFor } from '../src/lib/planner/availability';
-import { blockEvents, dayContext, dueEvents, lessonAt, toCalEvent, type CalendarCache } from '../src/lib/planner/calendar';
+import { blockEvents, dayContext, dayEvents as eventsOn, dueEvents, lessonAt, toCalEvent, type CalendarCache } from '../src/lib/planner/calendar';
 import { subjectFromTitle } from '../src/lib/planner/quickadd';
 import { clockMinutes } from '../src/lib/planner/dates';
 import type { Task, TestPlan } from '../src/lib/types';
@@ -95,5 +95,32 @@ describe('writing to Google', () => {
     expect(part.events[0]).toMatchObject({ key: `block:${MON}:desk-pm`, title: 'Study: flashcards, problems' });
     expect(Date.parse(part.events[0].start!)).toBe(at(26, 16, 30));
     expect(Date.parse(part.events[0].end!)).toBe(at(26, 17, 30));
+  });
+});
+
+
+describe('calendar events on the planner', () => {
+  it('lists classes, work and other events for one day, with all-day ones apart', () => {
+    const at = (h: number, m = 0) => new Date(2026, 10, 19, h, m).getTime();
+    const cache = {
+      fetched: 0,
+      from: '2026-11-12',
+      to: '2026-12-10',
+      timetable: [
+        { title: 'Chemistry', start: at(8, 50), end: at(9, 45), allDay: false },
+        { title: 'Sport carnival', start: new Date(2026, 10, 19).getTime(), end: new Date(2026, 10, 20).getTime(), allDay: true },
+      ],
+      work: [{ title: '', start: at(17), end: at(21), allDay: false }],
+      other: [{ title: 'Dentist', start: at(16), end: at(16, 45), allDay: false }],
+    };
+    const got = eventsOn(cache, '2026-11-19');
+    expect(got.allDay).toEqual(['Sport carnival']);
+    expect(got.timed.map((e) => [e.kind, e.title, e.start, e.end])).toEqual([
+      ['lesson', 'Chemistry', 530, 585],
+      ['other', 'Dentist', 960, 1005],
+      ['work', 'Work', 1020, 1260],
+    ]);
+    expect(eventsOn(cache, '2026-11-20').timed).toEqual([]);
+    expect(eventsOn(null, '2026-11-19')).toEqual({ timed: [], allDay: [] });
   });
 });

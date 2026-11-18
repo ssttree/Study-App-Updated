@@ -350,6 +350,8 @@ export interface SyncConfig {
   /** Google calendars the app reads (never changes). Empty means none. */
   workCalendarId: string;
   timetableCalendarId: string;
+  /** Other calendars shown on the planner (family, sport, personal), up to three. */
+  otherCalendarIds?: string[];
   /** Write due dates and study blocks to the app's own two calendars. */
   pushDue: boolean;
   pushBlocks: boolean;

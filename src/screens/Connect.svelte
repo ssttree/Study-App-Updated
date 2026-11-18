@@ -171,6 +171,27 @@
             {#each calendars as c (c.id)}<option value={c.id}>{c.name}{c.primary ? ' (main)' : ''}</option>{/each}
           </select>
         </label>
+        {@const others = calendars.filter((c) => c.id !== config!.workCalendarId && c.id !== config!.timetableCalendarId)}
+        {#if others.length}
+          <div class="field">
+            Also show on the planner <span class="muted">(up to three, like family, sport or your main calendar; shown only, they don't move study time)</span>
+            {#each others as c (c.id)}
+              {@const on = (config.otherCalendarIds ?? []).includes(c.id)}
+              <label class="check">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={!on && (config.otherCalendarIds ?? []).length >= 3}
+                  onchange={() => {
+                    const list = config!.otherCalendarIds ?? [];
+                    config!.otherCalendarIds = on ? list.filter((x) => x !== c.id) : [...list, c.id];
+                  }}
+                />
+                <span>{c.name}{c.primary ? ' (main)' : ''}</span>
+              </label>
+            {/each}
+          </div>
+        {/if}
         <label class="check">
           <input type="checkbox" bind:checked={config.pushDue} />
           <span>Put due dates in <strong>Study App: Due dates</strong> <span class="muted">(homework, tests, exams, milestones)</span></span>
