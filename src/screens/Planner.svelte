@@ -17,7 +17,7 @@
   } from '../lib/planner/actions';
   import { ASK_AFTER_CARRIES, EXTRA_WINDOW, extraItem, type BuiltDay } from '../lib/planner/build';
   import { addDays, clockMinutes, clockText, dayLabel, dueLabel, minutesText } from '../lib/planner/dates';
-  import { SHIFT_BUFFER } from '../lib/planner/calendar';
+  import { dayEvents, type DayEvent } from '../lib/planner/calendar';
   import { itemColour, itemLink, itemText, KIND_TEXT, windowTime } from '../lib/planner/labels';
   import { stageOf, STAGE_LABEL } from '../lib/planner/assessments';
   import { shortSubject } from '../lib/practice/load';
@@ -195,14 +195,6 @@
     if (value) act(() => rescheduleTask(task, value));
   }
 
-  /** Work shifts from Google, shown so you can see why a window vanished. */
-  function shifts(date: string): string[] {
-    const ctx = data?.input.context?.(date);
-    const out = (ctx?.busy ?? []).map((b) => `Work ${clockText(b.start + SHIFT_BUFFER)} to ${clockText(b.end - SHIFT_BUFFER)}`);
-    if (ctx?.schoolDay === false) out.push('No school');
-    return out;
-  }
-
   // Changing one day's windows (stored as a one-off day, like on the Study windows page).
   let editing = $state<StudyWindow[] | null>(null);
   const isOneOff = $derived(!!shown && !!data && !!data.input.availability.overrides[shown.date]);
@@ -240,7 +232,9 @@
     lay: DayLayout;
     /** Items with their place in pixels, nudged down so short ones never overlap. */
     items: { t: TimedItem; top: number; height: number }[];
-    shifts: Span[];
+    /** Classes, work and other calendar events, each in a lane so overlaps sit side by side. */
+    events: (DayEvent & { lane: number; lanes: number })[];
+    allDay: string[];
     planning: (Span & { done: boolean }) | null;
   }
   interface Cal {
@@ -265,11 +259,11 @@
         day,
         lay: layoutDay(day.windows, day.plan.items),
         items: [] as CalDay['items'],
-        shifts: busy.map((b) => ({ start: b.start + SHIFT_BUFFER, end: b.end - SHIFT_BUFFER })).filter((b) => b.end > b.start),
+        ...eventsOf(day.date),
         planning: slot ? { ...slot, done: reviews.some((r) => r.week === week) } : null,
       };
     });
-    const spans = out.flatMap((c) => [...c.lay.windows, ...c.lay.items, ...c.shifts, ...(c.planning ? [c.planning] : [])]);
+    const spans = out.flatMap((c) => [...c.lay.windows, ...c.lay.items, ...c.events, ...(c.planning ? [c.planning] : [])]);
     const range = visibleRange(spans);
 
     // Squeeze empty stretches of two hours or more (whole hours only) so the busy parts stay big.
@@ -312,6 +306,41 @@
     }
     return { days: out, range, hours, gaps, y, height: y(range.end) };
   }
+  /** Calendar events for a day, with overlapping ones split into lanes. */
+  function eventsOf(date: string): { events: CalDay['events']; allDay: string[] } {
+    const { timed, allDay } = dayEvents(data?.calendars ?? null, date);
+    const events: CalDay['events'] = [];
+    let group: CalDay['events'] = [];
+    let groupEnd = -1;
+    const close = () => {
+      const lanes = Math.max(1, ...group.map((e) => e.lane + 1));
+      for (const e of group) e.lanes = lanes;
+      group = [];
+    };
+    for (const e of timed) {
+      if (e.start >= groupEnd) close();
+      const used = new Set(group.filter((g) => g.end > e.start).map((g) => g.lane));
+      let lane = 0;
+      while (used.has(lane)) lane++;
+      const placed = { ...e, lane, lanes: 1 };
+      group.push(placed);
+      events.push(placed);
+      groupEnd = Math.max(groupEnd, e.end);
+    }
+    close();
+    return { events, allDay };
+  }
+
+  /** How full a day is outside study: classes and work, for planning energy. */
+  function loadText(c: CalDay): string {
+    const lessons = c.events.filter((e) => e.kind === 'lesson').length;
+    const work = c.events.filter((e) => e.kind === 'work').reduce((m, e) => m + e.end - e.start, 0);
+    const bits: string[] = [];
+    if (lessons) bits.push(plural(lessons, 'class', 'classes'));
+    if (work) bits.push(`work ${minutesText(work)}`);
+    return bits.join(' · ');
+  }
+
   const nowMinutes = $derived.by(() => {
     if (!data) return 0;
     const d = new Date(data.now);
@@ -421,6 +450,12 @@
 
         {#if view === 'day'}
           {@const cal = calendarOf([shown], false)}
+          {#if loadText(cal.days[0]) || cal.days[0].allDay.length}
+            <div class="day-load small">
+              {#if loadText(cal.days[0])}<span class="muted">{loadText(cal.days[0])}</span>{/if}
+              {#each cal.days[0].allDay as t (t)}<span class="allday">{t}</span>{/each}
+            </div>
+          {/if}
           {@render calendar(cal, false)}
           {@render looseItems(shown, cal.days[0].lay.loose)}
 
@@ -520,7 +555,9 @@
         {#each cal.days as c (c.day.date)}
           <a class="cal-head" class:today={c.day.date === data!.today} href={dayHref(c.day.date)} title="Open this day">
             <strong>{dayLabel(c.day.date, data!.today)}</strong>
-            <span class="mono dim small">{minutesText(planned(c.day))}</span>
+            <span class="mono dim small">{minutesText(planned(c.day))} study</span>
+            {#if loadText(c)}<span class="dim small">{loadText(c)}</span>{/if}
+            {#each c.allDay as t (t)}<span class="allday small" title={t}>{t}</span>{/each}
             {#if c.day.warnings.length}<span class="mini-warn" title={c.day.warnings.join(' ')}>Homework won't fit</span>{/if}
           </a>
         {/each}
@@ -539,9 +576,14 @@
         {@const day = c.day}
         <div class="col" class:today={day.date === data!.today}>
           {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
-          {#each c.shifts as s (s.start)}
-            <div class="shift" style={place(cal, s)} title="Work {spanText(s)}">
-              <span class="mono small">Work {spanText(s)}</span>
+          {#each c.events as e, i (i)}
+            <div
+              class="ev ev-{e.kind}"
+              style="{place(cal, e)};left:{(e.lane / e.lanes) * 100}%;width:calc({100 / e.lanes}% - 2px)"
+              title="{e.title} · {spanText(e)}"
+            >
+              <span class="ev-title">{e.title}</span>
+              {#if !compact}<span class="mono ev-time">{spanText(e)}</span>{/if}
             </div>
           {/each}
 
@@ -957,16 +999,68 @@
     top: 8px;
     left: 8px;
   }
-  .shift {
+  /* Classes, work and other events from your calendars. */
+  .ev {
     position: absolute;
-    left: 0;
-    right: 0;
-    border-radius: 8px;
-    background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, transparent 6px 12px);
-    border: 1px solid var(--line);
-    color: var(--dim);
-    padding: 4px 8px;
+    border-radius: 6px;
+    padding: 3px 8px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 12px;
+    line-height: 1.25;
+    border-left: 3px solid var(--ev);
+    background: color-mix(in srgb, var(--ev) 13%, var(--surface));
+    color: var(--muted);
+    /* Above the study window bands so they read clearly, but drops still reach the band underneath. */
+    z-index: 1;
+    pointer-events: none;
+  }
+  .compact .ev {
+    padding: 2px 4px;
+    font-size: 11px;
+  }
+  .ev-lesson {
+    --ev: var(--info);
+  }
+  .ev-work {
+    --ev: var(--warn);
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn) 14%, var(--surface)) 0 6px, var(--surface) 6px 12px);
+  }
+  .ev-other {
+    --ev: var(--dim);
+  }
+  .ev-title {
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ev-time {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .day-load {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+  }
+  .allday {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cal-head .allday {
+    font-size: 11px;
+    padding: 0 6px;
   }
   .band {
     position: absolute;
