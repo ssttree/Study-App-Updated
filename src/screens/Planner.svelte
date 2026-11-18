@@ -16,7 +16,8 @@
     togglePin,
   } from '../lib/planner/actions';
   import { ASK_AFTER_CARRIES, EXTRA_WINDOW, extraItem, type BuiltDay } from '../lib/planner/build';
-  import { addDays, clockMinutes, clockText, dayLabel, dueLabel, minutesText } from '../lib/planner/dates';
+  import { addDays, clockMinutes, clockText, dayLabel, dueLabel, keyToTime, minutesText, weekday } from '../lib/planner/dates';
+  import { windowsFor } from '../lib/planner/availability';
   import { dayEvents, type DayEvent } from '../lib/planner/calendar';
   import { itemColour, itemLink, itemText, KIND_TEXT, windowTime } from '../lib/planner/labels';
   import { stageOf, STAGE_LABEL } from '../lib/planner/assessments';
@@ -41,9 +42,14 @@
   let over = $state<string | null>(null);
 
   let reviews = $state.raw<WeeklyReview[]>([]);
+  /** Days planned ahead: enough to see this week and the four after it. */
+  const HORIZON = 35;
+  /** Weeks ahead shown in the week view (0 is this week). */
+  let weekOffset = $state(0);
+  const MAX_WEEKS = 4;
 
   async function reload() {
-    [data, reviews] = await Promise.all([loadPlanner(), listWeeklyReviews()]);
+    [data, reviews] = await Promise.all([loadPlanner(Date.now(), HORIZON), listWeeklyReviews()]);
   }
   // Show what's here straight away, then again if the server brought homework or calendar changes.
   reload().then(async () => {
@@ -132,7 +138,8 @@
   function moveTargets(): { value: string; label: string }[] {
     if (!data) return [];
     const out: { value: string; label: string }[] = [];
-    for (const d of data.days) {
+    // The next two weeks: further out is easier to drag in the week view.
+    for (const d of data.days.slice(0, 14)) {
       for (const w of d.windows) out.push({ value: `${d.date}|${w.id}`, label: `${dayLabel(d.date, data.today)} · ${w.name}` });
     }
     return out;
@@ -187,6 +194,7 @@
     dragging = over = null;
     if (!payload || !data) return;
     const [fromDate, itemId] = payload.split('|');
+    if (date < data.today) return;
     act(() => moveItem(data!.days, fromDate, itemId, date, windowId));
   }
 
@@ -362,6 +370,39 @@
     return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.day]} ${t.start}`;
   });
 
+  /** Monday of the week a date is in. */
+  const mondayOf = (key: string) => addDays(key, -((weekday(key) + 6) % 7));
+  /** The seven days (Monday to Sunday) of the week being looked at. Days already gone show what was planned. */
+  const weekDays = $derived.by((): BuiltDay[] => {
+    if (!data) return [];
+    const start = addDays(mondayOf(data.today), weekOffset * 7);
+    const out: BuiltDay[] = [];
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(start, i);
+      const built = data.days.find((d) => d.date === date);
+      if (built) out.push(built);
+      else if (date < data.today) {
+        out.push({
+          date,
+          windows: windowsFor(date, data.input.availability, data.input.context?.(date)),
+          plan: data.input.saved.get(date) ?? { date, items: [], built: 0 },
+          free: {},
+          warnings: [],
+        });
+      }
+    }
+    return out;
+  });
+  const weekLabel = $derived.by(() => {
+    if (!data) return '';
+    if (weekOffset === 0) return 'This week';
+    if (weekOffset === 1) return 'Next week';
+    const start = addDays(mondayOf(data.today), weekOffset * 7);
+    const fmt = (k: string, month: boolean) => new Date(keyToTime(k)).toLocaleDateString('en-AU', month ? { day: 'numeric', month: 'short' } : { day: 'numeric' });
+    const end = addDays(start, 6);
+    return `${fmt(start, start.slice(5, 7) !== end.slice(5, 7))} to ${fmt(end, true)}`;
+  });
+
   const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
 </script>
 
@@ -444,7 +485,11 @@
               {#if nextDay}<a class="btn small" href={dayHref(nextDay.date)} aria-label="Next day">{dayLabel(nextDay.date, data.today)} &rarr;</a>{/if}
             </div>
           {:else}
-            <span class="muted small">Drag a block to another window to move it there.</span>
+            <div class="step">
+              <button class="btn small" onclick={() => weekOffset--} disabled={weekOffset <= 0} aria-label="Previous week">&larr;</button>
+              <strong class="step-now">{weekLabel}</strong>
+              <button class="btn small" onclick={() => weekOffset++} disabled={weekOffset >= MAX_WEEKS} aria-label="Next week">&rarr;</button>
+            </div>
           {/if}
         </div>
 
@@ -497,7 +542,7 @@
           </section>
         {:else}
           <div class="week-scroll">
-            {@render calendar(calendarOf(data.days, true), true)}
+            {@render calendar(calendarOf(weekDays, true), true)}
           </div>
         {/if}
       </div>
@@ -553,7 +598,7 @@
       <div class="cal-heads">
         <span></span>
         {#each cal.days as c (c.day.date)}
-          <a class="cal-head" class:today={c.day.date === data!.today} href={dayHref(c.day.date)} title="Open this day">
+          <a class="cal-head" class:today={c.day.date === data!.today} class:past={c.day.date < data!.today} href={dayHref(c.day.date)} title="Open this day">
             <strong>{dayLabel(c.day.date, data!.today)}</strong>
             <span class="mono dim small">{minutesText(planned(c.day))} study</span>
             {#if loadText(c)}<span class="dim small">{loadText(c)}</span>{/if}
@@ -574,7 +619,7 @@
       {/each}
       {#each cal.days as c (c.day.date)}
         {@const day = c.day}
-        <div class="col" class:today={day.date === data!.today}>
+        <div class="col" class:today={day.date === data!.today} class:past={day.date < data!.today}>
           {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
           {#each c.events as e, i (i)}
             <div
@@ -691,7 +736,7 @@
     style={pos}
     style:--c={itemColour(item)}
     href={dayHref(day.date)}
-    draggable={item.status === 'todo'}
+    draggable={item.status === 'todo' && day.date >= data!.today}
     ondragstart={(e) => dragStart(e, day, item)}
     ondragend={() => (dragging = over = null)}
     title="{text.title} · {spanText(t)} · {item.minutes} min"
@@ -940,6 +985,13 @@
   }
   .cal-head:hover {
     background: var(--surface-2);
+  }
+  .cal-head.past {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+  .col.past {
+    opacity: 0.55;
   }
   .cal-head.today {
     background: color-mix(in srgb, var(--accent) 14%, transparent);

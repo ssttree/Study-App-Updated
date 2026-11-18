@@ -29,7 +29,7 @@ export const SYNC_EVERY = 10 * 60_000;
 export const DATA_SYNCED = 'study-data-synced';
 /** Days of your calendars kept for offline planning. */
 const READ_BACK = 1;
-const READ_AHEAD = 21;
+const READ_AHEAD = 35;
 
 export class SyncError extends Error {
   constructor(
