@@ -3,6 +3,7 @@
   import { defaultAvailability, inSoccerSeason, templateWindows, weeklyMinutes } from '../lib/planner/availability';
   import { dayLabel, minutesText, todayKey, WEEKDAYS } from '../lib/planner/dates';
   import { KIND_HINT, KIND_TEXT } from '../lib/planner/labels';
+  import { DEFAULT_PLANNING } from '../lib/planner/timeline';
   import { href } from '../lib/router.svelte';
   import type { Availability, Season, StudyWindow, WindowKind } from '../lib/types';
 
@@ -24,7 +25,10 @@
   async function load() {
     const settings = await getSettings();
     today = todayKey(Date.now(), settings.dayStartHour);
-    a = await getAvailability();
+    const got = await getAvailability();
+    // Missing means the default time, so show that to change.
+    if (got.planning === undefined) got.planning = { ...DEFAULT_PLANNING };
+    a = got;
     season = inSoccerSeason(today, a) ? 'soccer' : 'off';
     oneOff = today;
   }
@@ -108,6 +112,7 @@
     if (!a) return;
     const clean = $state.snapshot(a) as Availability;
     for (const w of clean.windows) w.minutes = Math.max(5, Math.round(Number(w.minutes) || 30));
+    if (clean.planning) clean.planning = { ...clean.planning, day: Number(clean.planning.day), minutes: Math.max(5, Math.round(Number(clean.planning.minutes) || 20)) };
     // Old one-off days are not needed any more.
     for (const k of Object.keys(clean.overrides)) if (k < today) delete clean.overrides[k];
     await saveAvailability(clean);
@@ -179,6 +184,36 @@
             changed();
           }}>No limit</button
         >
+      {/if}
+    </section>
+
+    <section class="panel hours">
+      <div class="field">
+        <span>Weekly planning</span>
+        <span class="muted small">
+          A set time each week for the weekly review and a look at the week ahead. It shows on the planner, and moves to
+          straight after work if a shift covers it.
+        </span>
+      </div>
+      {#if !a.planning}
+        <button class="btn small" onclick={() => ((a!.planning = { ...DEFAULT_PLANNING }), changed())}>Turn it on</button>
+      {:else}
+        {@const p = a.planning}
+        <label class="field">
+          Day
+          <select bind:value={p.day} onchange={changed}>
+            {#each ORDER as d (d)}<option value={d}>{WEEKDAYS[d]}</option>{/each}
+          </select>
+        </label>
+        <label class="field">
+          Time
+          <input type="time" bind:value={p.start} oninput={changed} />
+        </label>
+        <label class="field">
+          Minutes
+          <input class="mins" type="number" min="5" step="5" bind:value={p.minutes} oninput={changed} />
+        </label>
+        <button class="btn small" onclick={() => ((a!.planning = null), changed())}>Turn off</button>
       {/if}
     </section>
 
@@ -339,6 +374,9 @@
   }
   .hours .field:first-child {
     flex: 1 1 260px;
+  }
+  .hours .mins {
+    width: 90px;
   }
   .season {
     display: grid;

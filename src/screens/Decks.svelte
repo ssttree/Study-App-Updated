@@ -1,5 +1,6 @@
 <script lang="ts">
   import DeckForm from '../components/DeckForm.svelte';
+  import NotesToCards from '../components/NotesToCards.svelte';
   import { newId, saveDeck } from '../lib/db';
   import { loadCollection, plural, type Collection } from '../lib/load';
   import { summarise } from '../lib/queue';
@@ -82,6 +83,8 @@
       {/each}
     </section>
   {/each}
+
+  {#if data}<NotesToCards decks={data.decks} />{/if}
 </main>
 
 <style>

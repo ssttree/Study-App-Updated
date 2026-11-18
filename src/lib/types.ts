@@ -301,6 +301,8 @@ export interface Availability {
   latest?: string;
   /** False: spare time is left free instead of filled with problems, test prep and revision. Missing means on. */
   autoFill?: boolean;
+  /** The weekly planning session (weekly review + look at the week). Missing means Sunday 16:00 for 20 min, null means off. */
+  planning?: { day: number; start: string; minutes: number } | null;
 }
 
 export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';

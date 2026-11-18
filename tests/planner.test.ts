@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { parseQuickAdd } from '../src/lib/planner/quickadd';
+import { layoutDay, planningSlot, visibleRange } from '../src/lib/planner/timeline';
 import { defaultAvailability, inSoccerSeason, windowsFor, weeklyMinutes } from '../src/lib/planner/availability';
 import { addDays, dueLabel, weekday } from '../src/lib/planner/dates';
 import { buildWeek, closePastDays, extraItem, EXTRA_WINDOW, type PlannerInput } from '../src/lib/planner/build';
@@ -399,4 +400,37 @@ it('labels due dates plainly', () => {
   expect(dueLabel(TODAY, TODAY)).toBe('due today');
   expect(dueLabel('2026-10-25', TODAY)).toBe('due tomorrow');
   expect(dueLabel('2026-10-28', TODAY)).toMatch(/^due Wed/);
+});
+
+
+describe('planner calendar', () => {
+  it('lays items out one after another from the window start', () => {
+    const w = { id: 'w', name: 'Desk', days: [], start: '17:20', minutes: 45, kind: 'desk' as const, season: 'all' as const };
+    const items = [
+      { id: 'a', kind: 'homework' as const, windowId: 'w', minutes: 25, pinned: false, status: 'todo' as const },
+      { id: 'b', kind: 'problems' as const, windowId: 'w', minutes: 20, pinned: false, status: 'skipped' as const },
+      { id: 'c', kind: 'problems' as const, windowId: 'w', minutes: 20, pinned: false, status: 'done' as const },
+      { id: 'd', kind: 'problems' as const, windowId: 'extra', minutes: 20, pinned: false, status: 'todo' as const },
+    ];
+    const lay = layoutDay([w], items);
+    expect(lay.items.map((t) => [t.item.id, t.start, t.end])).toEqual([
+      ['a', 1040, 1065],
+      ['c', 1065, 1085],
+    ]);
+    expect(lay.loose.map((i) => i.id)).toEqual(['b', 'd']);
+  });
+
+  it('shows whole hours around everything', () => {
+    expect(visibleRange([{ start: 430, end: 480 }, { start: 1040, end: 1085 }])).toEqual({ start: 420, end: 1140 });
+    expect(visibleRange([{ start: 1040, end: 1085 }])).toEqual({ start: 1020, end: 1260 });
+  });
+
+  it('puts the planning session on its day, after a work shift', () => {
+    const a = defaultAvailability();
+    // 2026-11-22 is a Sunday.
+    expect(planningSlot(a, '2026-11-22')).toEqual({ start: 960, end: 980 });
+    expect(planningSlot(a, '2026-11-23')).toBeNull();
+    expect(planningSlot(a, '2026-11-22', [{ start: 630, end: 1260 }])).toEqual({ start: 1260, end: 1280 });
+    expect(planningSlot({ ...a, planning: null }, '2026-11-22')).toBeNull();
+  });
 });
