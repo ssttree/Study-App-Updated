@@ -224,6 +224,42 @@ export interface TestPlan {
   outOf?: number;
   /** Skills that went badly, pulled forward in the schedule. */
   badSkillIds?: string[];
+  /** Start time on the day as HH:MM, when known. */
+  time?: string;
+  /** The school's task notification, when it was uploaded. */
+  notification?: TaskNotification;
+}
+
+// Assessment task notifications (see planner/notification.ts).
+
+/** A table row: cells, each a list of paragraphs. Paragraphs outside tables are one-cell rows. */
+export type Row = string[][];
+
+export interface NotificationSection {
+  heading: string;
+  rows: Row[];
+}
+
+/** One possible date. Notifications for subjects with several classes give one per class. */
+export interface DateOption {
+  /** Date key, YYYY-MM-DD. */
+  date: string;
+  /** HH:MM, when the notification gives a time. */
+  time?: string;
+  /** Which class it is for, like "12CHEMA (Line 2)", when there is more than one date. */
+  label?: string;
+}
+
+/** What is kept on an assessment so its notification can be read in the app. */
+export interface TaskNotification {
+  fileName: string;
+  /** The original file, in the images store. */
+  fileId?: string;
+  uploaded: number;
+  sections: NotificationSection[];
+  dateOptions: DateOption[];
+  /** Things worth checking with the teacher, like a submission week that differs from the date. */
+  warnings: string[];
 }
 
 // Planner and homework.

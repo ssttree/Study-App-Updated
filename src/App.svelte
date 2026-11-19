@@ -30,6 +30,7 @@
   import TaskEditor from './screens/TaskEditor.svelte';
   import Windows from './screens/Windows.svelte';
   import Exams from './screens/Exams.svelte';
+  import NotificationImport from './screens/NotificationImport.svelte';
   import Connect from './screens/Connect.svelte';
   import Devices from './screens/Devices.svelte';
   import Join from './screens/Join.svelte';
@@ -43,7 +44,7 @@
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
     { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'writeQuestion', 'questionsImport', 'plans', 'plan'] },
-    { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'connect', 'plan:planner'] },
+    { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'examUpload', 'connect', 'plan:planner'] },
     { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'marksImport', 'mark'] },
   ];
 
@@ -183,6 +184,8 @@
       <Windows />
     {:else if route.name === 'exams'}
       <Exams />
+    {:else if route.name === 'examUpload'}
+      <NotificationImport />
     {:else if route.name === 'connect'}
       <Connect result={route.result} />
     {:else if route.name === 'settings'}

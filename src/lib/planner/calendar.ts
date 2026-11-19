@@ -144,7 +144,7 @@ export function dueEvents(tasks: Task[], assessments: TestPlan[], today: string)
     events.push({
       key: `assessment:${a.id}`,
       title: `${KIND_LABEL[kindOf(a)]}: ${a.name}`,
-      description: [shortSubject(a.subject), a.weighting ? `${a.weighting}%` : ''].filter(Boolean).join(' · '),
+      description: [shortSubject(a.subject), a.weighting ? `${a.weighting}%` : '', a.time ? `starts ${a.time}` : ''].filter(Boolean).join(' · '),
       date,
     });
   }

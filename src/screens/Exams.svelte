@@ -36,7 +36,8 @@
   function when(a: TestPlan): string {
     const d = daysUntil(a, today);
     const label = dayLabel(dateKey(a.date), today);
-    return d > 1 ? `${label} · in ${d} days` : label;
+    const at = a.time ? ` ${a.time}` : '';
+    return d > 1 ? `${label}${at} · in ${d} days` : `${label}${at}`;
   }
 
   function prepNote(a: TestPlan): string {
@@ -61,7 +62,10 @@
       Every assessment you add changes the daily plan by itself. Class tests ramp up from 21 days out, trials and the
       HSC from 42, so prep starts weeks ahead instead of the night before.
     </p>
-    <div class="actions"><a class="btn primary" href={href('planner', 'exam', 'new')}>Add an assessment</a></div>
+    <div class="actions">
+      <a class="btn primary" href={href('planner', 'exams', 'upload')}>Upload task notifications</a>
+      <a class="btn" href={href('planner', 'exam', 'new')}>Add one by hand</a>
+    </div>
   </section>
 
   {#if loaded}
@@ -149,6 +153,7 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
   }
   .small {

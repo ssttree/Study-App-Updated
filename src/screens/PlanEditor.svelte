@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { deleteTestPlan, getSettings, listDecks, listTasks, newId, saveSkill, saveTestPlan } from '../lib/db';
+  import { deleteImage, deleteTestPlan, getImage, getSettings, listDecks, listTasks, newId, saveSkill, saveTestPlan } from '../lib/db';
   import { loadPractice, relativeDay, type PracticeCollection } from '../lib/practice/load';
   import { withChildren } from '../lib/practice/mix';
   import { DEFAULT_RAMP, KIND_LABEL, rampOf, stageOf, STAGE_LABEL, STAGE_TEXT } from '../lib/planner/assessments';
   import { dateKey, dueLabel, keyToTime, todayKey } from '../lib/planner/dates';
   import { plural } from '../lib/load';
   import { go, href } from '../lib/router.svelte';
-  import { SUBJECTS, type AssessmentKind, type Deck, type RampDays, type Task, type TestPlan } from '../lib/types';
+  import { SUBJECTS, type AssessmentKind, type Deck, type RampDays, type Task, type TaskNotification, type TestPlan } from '../lib/types';
+  import NotificationView from '../components/NotificationView.svelte';
 
   /** from: opened from the planner rather than practice, which changes the way back. */
   let { id, from }: { id: string; from?: 'planner' } = $props();
@@ -18,6 +19,8 @@
   let name = $state('');
   let subject = $state('');
   let date = $state('');
+  let time = $state('');
+  let notification = $state.raw<TaskNotification | undefined>(undefined);
   let kind = $state<AssessmentKind>('test');
   let weighting = $state<number | ''>('');
   let customRamp = $state(false);
@@ -44,6 +47,8 @@
       name = plan.name;
       subject = plan.subject;
       date = dateKey(plan.date);
+      time = plan.time ?? '';
+      notification = plan.notification;
       kind = plan.kind ?? 'test';
       weighting = plan.weighting ?? '';
       customRamp = !!plan.ramp;
@@ -116,6 +121,8 @@
       mark: num(mark),
       outOf: num(outOf),
       badSkillIds: badSkillIds.length ? [...badSkillIds] : undefined,
+      time: time || undefined,
+      notification,
     };
     // Skills that went badly come back straight away.
     const newlyBad = badSkillIds.filter((s) => !(plan?.badSkillIds ?? []).includes(s));
@@ -135,8 +142,20 @@
     if (saved) go('planner', 'task', 'new', saved.id);
   }
 
+  async function openOriginal() {
+    const image = notification?.fileId ? await getImage(notification.fileId) : undefined;
+    if (!image || !notification) return;
+    const blob = await (await fetch(image.data)).blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = notification.fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  }
+
   async function remove() {
     if (!plan || !confirm(`Delete "${plan.name}"? Your attempts stay.`)) return;
+    if (plan.notification?.fileId) await deleteImage(plan.notification.fileId);
     await deleteTestPlan(plan.id);
     location.hash = back;
   }
@@ -162,6 +181,7 @@
         Add it as soon as you know the date. The planner ramps up prep by itself: in-scope skills get more problem time,
         then test prep mode, then timed sets in the last few days.
       </p>
+      <div class="actions"><a class="btn" href={href('planner', 'exams', 'upload')}>Upload the task notification instead</a></div>
     {/if}
   </section>
 
@@ -183,8 +203,13 @@
         </select>
       </label>
       <label class="field">{kind === 'assignment' ? 'Due date' : 'Date'}<input type="date" bind:value={date} /></label>
+      <label class="field">Time (optional)<input type="time" bind:value={time} /></label>
       <label class="field">Weighting %<input type="number" min="0" max="100" bind:value={weighting} placeholder="e.g. 25" /></label>
     </section>
+
+    {#if notification}
+      <NotificationView {notification} onopen={openOriginal} />
+    {/if}
 
     {#if kind !== 'assignment'}
       <section>
@@ -331,7 +356,8 @@
   .wide {
     grid-column: 1 / -1;
   }
-  input[type='date'] {
+  input[type='date'],
+  input[type='time'] {
     min-height: 44px;
     padding: 8px 12px;
     border-radius: 10px;
