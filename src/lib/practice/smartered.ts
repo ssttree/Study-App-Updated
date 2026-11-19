@@ -15,6 +15,8 @@ export interface TextItem {
   w: number;
   h: number;
   rotated?: boolean;
+  /** Set in a sans-serif font: textbooks print question numbers this way. */
+  sans?: boolean;
 }
 
 export interface PageText {

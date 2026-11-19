@@ -1,6 +1,7 @@
 <script lang="ts">
   import { loadPractice, relativeDay, shortSubject, type PracticeCollection } from '../lib/practice/load';
-  import { activePlans, activeSkills, buildDailyMix, costMinutes, recommendSubjects } from '../lib/practice/mix';
+  import { activePlans, activeSkills, buildDailyMix, costMinutes, recommendSubjects, withLevels } from '../lib/practice/mix';
+  import LevelFilter from '../components/LevelFilter.svelte';
   import { plural } from '../lib/load';
   import { addStarterSkills } from '../lib/practice/save';
   import { STARTER_SKILLS } from '../lib/practice/subjects';
@@ -49,7 +50,7 @@
   const preview = $derived.by(() => {
     if (!data || !subject) return null;
     const subjects = second && second !== subject ? [subject, second] : [subject];
-    const items = buildDailyMix(data, { subjects, minutes: data.settings.problemMinutes, dayEnd: data.dayEnd, rng: () => 0.5 });
+    const items = buildDailyMix(withLevels(data, data.settings.levels), { subjects, minutes: data.settings.problemMinutes, dayEnd: data.dayEnd, rng: () => 0.5 });
     return {
       count: items.length,
       skills: new Set(items.map((i) => i.skill.id)).size,
@@ -118,6 +119,9 @@
             </label>
           {/if}
         </div>
+        {#if data.problems.some((p) => p.level)}
+          <LevelFilter problems={data.problems} levels={data.settings.levels} onchange={async () => (data = await loadPractice())} />
+        {/if}
         <p class="muted small note">
           Mixed practice feels slower and you will get more wrong than doing one topic at a time. That is normal, and
           it is why you remember more weeks later.
@@ -167,6 +171,7 @@
         <h2>Add questions</h2>
         <div class="actions">
           <a class="btn" href={href('practice', 'import')}>SmarterEd PDFs</a>
+          <a class="btn" href={href('practice', 'import')}>Textbook chapter</a>
           <a class="btn" href={href('practice', 'atar')}>ATAR Notes topic test</a>
           <a class="btn" href={href('practice', 'import')}>Past HSC paper</a>
           <a class="btn" href={href('practice', 'write')}>Type a question</a>

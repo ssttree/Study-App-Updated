@@ -2,6 +2,8 @@
   import { untrack } from 'svelte';
   import ProblemImage from '../components/ProblemImage.svelte';
   import Snipper from '../components/Snipper.svelte';
+  import LevelBadge from '../components/LevelBadge.svelte';
+  import { LEVELS } from '../lib/practice/mix';
   import { getTask, listSkills, problemSkillsByKey, saveTask } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
@@ -33,7 +35,12 @@
     knownCount: number;
     /** Set when every question is in the app already: the skill they are in. */
     knownSkill: string | null;
+    /** Textbook chapters: untick an exercise to leave it out. */
+    use: boolean;
   }
+
+  /** Questions found for you (SmarterEd sheets and textbook exercises), rather than snipped by hand. */
+  const auto = (s: SheetState) => s.analysed.smarterEd || !!s.analysed.textbook;
 
   /** Set when importing a SmarterEd set from the homework list. */
   let { taskId }: { taskId?: string } = $props();
@@ -72,36 +79,41 @@
     for (const [n, file] of pdfs.entries()) {
       progress = `${file.name} (${n + 1} of ${pdfs.length})`;
       try {
-        const analysed = await lib.analyseSheet(file, (done, total) => (progress = `${file.name}: cropping ${done} of ${total}`));
-        const subject = analysed.sheet.subject || task?.subject || SUBJECTS[1];
-        const existing = findSkill(skills, subject, analysed.sheet.title);
-        const knownSkill = analysed.smarterEd ? allKnown(analysed.pairs.map((p) => p.key), known) : null;
-        const knownCount = analysed.pairs.filter((p) => known.has(p.key)).length;
-        for (const p of analysed.pairs) if (known.has(p.key)) p.include = false;
-        sheets.push({
-          id: nextId++,
-          fileName: file.name,
-          analysed,
-          subject,
-          skill: knownSkill ?? existing?.id ?? 'new',
-          name: analysed.sheet.title,
-          dotPoint: '',
-          pairs: analysed.pairs,
-          showAll: false,
-          fixing: analysed.smarterEd ? null : { index: -1, part: 'question' },
-          pendingQuestion: null,
-          answers: null,
-          answersName: '',
-          lastPage: { question: 0, solution: 0 },
-          knownCount,
-          knownSkill,
-        });
+        const found = await lib.analyseFile(file, (t) => (progress = `${file.name}: ${t}`));
+        for (const analysed of found) {
+          const subject = analysed.sheet.subject || task?.subject || SUBJECTS[1];
+          const existing = findSkill(skills, subject, analysed.sheet.title);
+          const knownSkill = auto0(analysed) ? allKnown(analysed.pairs.map((p) => p.key), known) : null;
+          const knownCount = analysed.pairs.filter((p) => known.has(p.key)).length;
+          for (const p of analysed.pairs) if (known.has(p.key)) p.include = false;
+          sheets.push({
+            id: nextId++,
+            fileName: file.name,
+            analysed,
+            subject,
+            skill: knownSkill ?? existing?.id ?? 'new',
+            name: analysed.sheet.title,
+            dotPoint: '',
+            pairs: analysed.pairs,
+            showAll: false,
+            fixing: auto0(analysed) ? null : { index: -1, part: 'question' },
+            pendingQuestion: null,
+            answers: null,
+            answersName: '',
+            lastPage: { question: 0, solution: 0 },
+            knownCount,
+            knownSkill,
+            use: true,
+          });
+        }
       } catch (e) {
         error = `Could not read ${file.name}: ${e instanceof Error ? e.message : String(e)}`;
       }
     }
     step = sheets.length ? 'review' : 'pick';
   }
+
+  const auto0 = (a: AnalysedSheet) => a.smarterEd || !!a.textbook;
 
   function pick(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
@@ -144,10 +156,8 @@
   const solutionPdf = (sheet: SheetState) => sheet.answers ?? sheet.analysed.pdf;
 
   function destroyAll() {
-    for (const s of sheets) {
-      s.analysed.pdf.destroy();
-      s.answers?.destroy();
-    }
+    // A textbook chapter's exercises share one PDF.
+    for (const pdf of new Set(sheets.flatMap((s) => [s.analysed.pdf, s.answers]))) pdf?.destroy();
   }
 
   function onPicked(sheet: SheetState, picture: Picture, page: number) {
@@ -192,15 +202,19 @@
     sheet.fixing = { index: -1, part: 'question' };
   }
 
-  const ready = $derived(sheets.every((s) => (s.skill !== 'new' || s.name.trim()) && s.subject));
-  const total = $derived(sheets.reduce((n, s) => n + s.pairs.filter((p) => p.include).length, 0));
+  const ready = $derived(sheets.every((s) => !s.use || ((s.skill !== 'new' || s.name.trim()) && s.subject)));
+  const total = $derived(sheets.reduce((n, s) => n + (s.use ? s.pairs.filter((p) => p.include).length : 0), 0));
   const linkOnly = $derived(sheets.some((s) => s.knownSkill));
+  /** How many questions at each textbook level a sheet has. */
+  const levelCounts = (s: SheetState) =>
+    LEVELS.map((l) => ({ level: l, n: s.pairs.filter((p) => p.level === l).length })).filter((c) => c.n);
 
   async function saveAll() {
     step = 'saving';
     const out: { fileName: string; result: SaveResult }[] = [];
     try {
       for (const s of sheets) {
+        if (!s.use) continue;
         const already = s.knownSkill ? skills.find((k) => k.id === s.knownSkill) : undefined;
         if (already) {
           out.push({ fileName: s.fileName, result: { skill: already, added: 0, skipped: s.knownCount } });
@@ -220,8 +234,8 @@
           const result = await saveProblems(
             skillId ? { kind: 'existing', id: skillId } : choice,
             group,
-            s.analysed.smarterEd ? 'smartered' : 'snip',
-            s.analysed.smarterEd ? s.name || s.fileName : s.fileName.replace(/\.pdf$/i, ''),
+            s.analysed.textbook ? 'textbook' : s.analysed.smarterEd ? 'smartered' : 'snip',
+            s.analysed.textbook ? s.analysed.sheet.topic : s.analysed.smarterEd ? s.name || s.fileName : s.fileName.replace(/\.pdf$/i, ''),
           );
           out.push({ fileName: s.fileName, result });
         }
@@ -259,8 +273,9 @@
     <h1>Import PDFs</h1>
     {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
-      Drop in one or more worksheets. The app finds each question and its worked solution and cuts them out as
-      pictures. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
+      Drop in one or more worksheets, or a textbook chapter. The app finds each question and its worked solution
+      and cuts them out as pictures. A Maths In Focus chapter becomes one skill per exercise, with each question
+      tagged Foundation, Mastery or Complex, and its Test yourself questions join the exercise they test. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
       taught it. Pairs that look right are ticked already; you only need to check the ones marked.
     </p>
   </section>
@@ -310,17 +325,28 @@
       <section class="sheet panel">
         <div class="sheet-head">
           <div>
-            <div class="mono muted small">{s.fileName}</div>
-            <h2>{s.analysed.smarterEd ? `${plural(s.pairs.length, 'question')} found` : 'Snip questions by hand'}</h2>
+            <div class="mono muted small">{s.fileName}{s.analysed.textbook ? ` · ${s.analysed.sheet.topic}` : ''}</div>
+            {#if s.analysed.textbook}
+              <label class="tick use">
+                <input type="checkbox" bind:checked={s.use} />
+                <h2>{s.analysed.sheet.title}: {plural(s.pairs.length, 'question')}</h2>
+              </label>
+              <div class="levels">
+                {#each levelCounts(s) as c (c.level)}<span><LevelBadge level={c.level} /> <span class="mono muted small">{c.n}</span></span>{/each}
+              </div>
+            {:else}
+              <h2>{auto(s) ? `${plural(s.pairs.length, 'question')} found` : 'Snip questions by hand'}</h2>
+            {/if}
             {#if s.knownCount}<p class="muted small">{s.knownCount} already in the app, so they're unticked.</p>{/if}
           </div>
-          {#if s.analysed.smarterEd}
+          {#if auto(s) && s.use}
             <span class="mono small" class:warn={look.length > 0}>
               {look.length ? `${look.length} to check` : 'All paired'}
             </span>
           {/if}
         </div>
 
+        {#if s.use}
         <div class="fields">
           <label class="field">
             Subject
@@ -355,7 +381,7 @@
               />
               <button class="btn small" onclick={() => (s.fixing = null)}>Cancel</button>
             {:else}
-              {#if !s.analysed.smarterEd}
+              {#if !auto(s)}
                 <div class="answers small">
                   {#if s.answers}
                     <span>Answers come from <strong>{s.answersName}</strong>.</span>
@@ -381,7 +407,7 @@
                 {#if s.fixing.part === 'solution'}
                   <button class="btn small" onclick={() => addSnipped(s, null)}>This one has no answer</button>
                 {/if}
-                {#if s.analysed.smarterEd}
+                {#if auto(s)}
                   <button class="btn small" onclick={() => (s.fixing = null)}>Done snipping</button>
                 {/if}
               </div>
@@ -390,8 +416,8 @@
         {/if}
 
         {#if s.pairs.length}
-          {@const shown = s.showAll || !s.analysed.smarterEd ? s.pairs : look}
-          {#if s.analysed.smarterEd}
+          {@const shown = s.showAll || !auto(s) ? s.pairs : look}
+          {#if auto(s)}
             <div class="row-actions">
               <button class="btn small" onclick={() => (s.showAll = !s.showAll)}>
                 {s.showAll ? 'Show only the ones to check' : `Show all ${s.pairs.length}`}
@@ -405,11 +431,12 @@
               <div class="pair-head">
                 <label class="tick">
                   <input type="checkbox" bind:checked={p.include} />
-                  <span>{p.number}. {p.label || 'Question'}</span>
+                  <span>{s.analysed.textbook ? p.label : `${p.number}. ${p.label || 'Question'}`}</span>
                 </label>
+                {#if p.level}<LevelBadge level={p.level} />{/if}
                 <label class="marks mono small"><input type="number" min="1" max="20" bind:value={p.marks} /> marks</label>
                 {#if p.mc}<span class="mono small muted">MC</span>{/if}
-                {#if !s.analysed.smarterEd && subjectSkills.length}
+                {#if !auto(s) && subjectSkills.length}
                   <label class="pair-skill small">
                     <span class="sr-only">Skill for question {p.number}</span>
                     <select bind:value={p.skill}>
@@ -432,9 +459,10 @@
               </div>
             </div>
           {/each}
-          {#if s.analysed.smarterEd && !s.showAll && look.length === 0}
-            <p class="muted small">Every question was matched to its worked solution.</p>
+          {#if auto(s) && !s.showAll && look.length === 0}
+            <p class="muted small">Every question was matched to its {s.analysed.textbook ? 'answer' : 'worked solution'}.</p>
           {/if}
+        {/if}
         {/if}
       </section>
       {/if}
@@ -541,6 +569,18 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 12px;
+  }
+  .use {
+    align-items: flex-start;
+  }
+  .use input {
+    margin-top: 4px;
+  }
+  .levels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 6px;
   }
   .topic {
     margin: -6px 0 0;
