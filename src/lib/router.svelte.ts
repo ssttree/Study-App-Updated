@@ -30,6 +30,7 @@ export type Route =
   | { name: 'task'; id: string; assessmentId?: string }
   | { name: 'windows' }
   | { name: 'exams' }
+  | { name: 'examUpload' }
   | { name: 'connect'; result?: string }
   | { name: 'progress' }
   | { name: 'progressSubject'; subject: string }
@@ -147,7 +148,7 @@ function plannerRoute(rest: string[]): Route {
     case 'windows':
       return { name: 'windows' };
     case 'exams':
-      return { name: 'exams' };
+      return more[0] === 'upload' ? { name: 'examUpload' } : { name: 'exams' };
     case 'connect':
       return { name: 'connect', result: more[0] };
     case 'exam':
