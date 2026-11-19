@@ -9,6 +9,10 @@
 // chapter are numbered the same way, with no frame; Test yourself questions
 // have a tag in the margin naming the section they test, like "1.07".
 //
+// Practice sets ("PRACTICE SET 1") are laid out the same way with no frames,
+// each question tagged in the margin, and their answers under "Practice set 1"
+// between two chapters' answers.
+//
 // Answers: two columns, "Chapter 1", then "Exercise 1.01" and the question
 // numbers in bold, sometimes several on one line ("28 26  29 122b  30 38th term").
 //
@@ -31,13 +35,13 @@ export interface Frame {
   bottom: number;
 }
 
-export type SectionKind = 'exercise' | 'test' | 'challenge';
+export type SectionKind = 'exercise' | 'test' | 'challenge' | 'practice';
 
 export interface BookSection {
-  /** "1.04", "test1" or "challenge1". */
+  /** "1.04", "test1", "challenge1" or "practice1". */
   key: string;
   kind: SectionKind;
-  /** "Arithmetic series", "Test yourself 1", "Challenge exercise 1". */
+  /** "Arithmetic series", "Test yourself 1", "Challenge exercise 1", "Practice set 1". */
   title: string;
   /** Questions in this range are multiple choice, from "For Questions 1 to 5, select ...". */
   mc?: [number, number];
@@ -56,7 +60,7 @@ export interface BookQuestion {
   number: number;
   regions: Region[];
   badge: Mark;
-  /** Margin tag naming the section it tests, like "1.07" (Test yourself only). */
+  /** Margin tag naming the section it tests, like "1.07" (Test yourself and practice sets). */
   tag?: string;
   mc: boolean;
 }
@@ -79,6 +83,8 @@ export interface BookLayout {
   questions: BookQuestion[];
   /** First page of the answers, 0 based. */
   answersFrom: number;
+  /** Set for a practice set PDF ("PRACTICE SET 1"): its number. */
+  practice?: number;
 }
 
 interface Token {
@@ -96,8 +102,43 @@ const HEADER = 40;
 
 const top = (page: PageText, item: TextItem) => page.height - item.y;
 
+/** "PRACTICE SET 1" across the top of the first page of a practice set. */
+export function practiceSetNumber(pages: PageText[]): number | null {
+  for (const it of pages[0]?.items ?? []) {
+    const m = /^PRACTICE SET (\d{1,2})$/.exec(it.str.trim());
+    if (m && it.h >= 18 && !it.rotated) return Number(m[1]);
+  }
+  return null;
+}
+
+/** The page where a practice set's answers start, under a "Practice set 1" heading, or the page count. */
+function practiceAnswersStart(pages: PageText[], set: number): number {
+  for (let p = 1; p < pages.length; p++) {
+    const mid = pages[p].width / 2;
+    const columns = [pages[p].items.filter((i) => i.x < mid - 2), pages[p].items.filter((i) => i.x >= mid - 2)];
+    if (columns.some((c) => lines(c).some((l) => isPracticeHeading(l, set)))) return p;
+  }
+  return pages.length;
+}
+
+/** "Practice set 1 (Ch 1-3)": the chapters come from the questions' margin tags, or else the file name. */
+export function practiceTitle(title: string, layout: BookLayout, fileName: string): string {
+  const chapters = layout.questions.filter((q) => q.tag).map((q) => Number(q.tag!.split('.')[0]));
+  const named = /\(Ch\s*(\d{1,2})\s*[-–]\s*(\d{1,2})\)/i.exec(fileName);
+  const range = chapters.length ? [Math.min(...chapters), Math.max(...chapters)] : named ? [Number(named[1]), Number(named[2])] : null;
+  return range ? `${title} (Ch ${range[0]}-${range[1]})` : title;
+}
+
+/** The "Practice set 1" heading over its answers (the "Practice" and "set 1" can be separate pieces). */
+function isPracticeHeading(line: TextItem[], set: number): boolean {
+  const first = line[0];
+  return !!first.sans && first.h >= 9.5 && first.h < 12 && lineText(line) === `Practice set ${set}`;
+}
+
 /** True for a chapter PDF laid out like Maths In Focus: exercises and an answers section. */
 export function looksLikeTextbook(pages: PageText[]): boolean {
+  const set = practiceSetNumber(pages);
+  if (set !== null) return practiceAnswersStart(pages, set) < pages.length;
   let exercises = 0;
   let answers = false;
   for (const p of pages) {
@@ -153,7 +194,8 @@ export function chapterFromName(fileName: string): { chapter: number; title: str
  * gives the orange frames found on a page, so a question stops at its frame.
  */
 export function findQuestions(pages: PageText[], frames: (page: number) => Frame[], fileName = ''): BookLayout {
-  const answersFrom = answersStart(pages);
+  const practice = practiceSetNumber(pages) ?? undefined;
+  const answersFrom = practice === undefined ? answersStart(pages) : practiceAnswersStart(pages, practice);
   const sections: BookSection[] = [];
   const tokens: Token[] = [];
   let section: BookSection | null = null;
@@ -200,6 +242,10 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
           section = { key: `test${chapter}`, kind: 'test', title: `Test yourself ${chapter || ''}`.trim() };
           sections.push(section);
           last = 0;
+        } else if (/^PRACTICE SET \d/.test(t) && practice !== undefined) {
+          section = { key: `practice${practice}`, kind: 'practice', title: `Practice set ${practice}` };
+          sections.push(section);
+          last = 0;
         } else if (/^Challenge exercise/i.test(t)) {
           section = { key: `challenge${chapter}`, kind: 'challenge', title: `Challenge exercise ${chapter || ''}`.trim() };
           sections.push(section);
@@ -240,7 +286,7 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
       number: t.number,
       regions: questionRegions(pages, frames, t, next, tokens),
       badge: { page: t.page, x: t.item.x + t.item.w / 2, y: top(pages[t.page], t.item) - t.item.h * 0.35 },
-      tag: sec.kind === 'test' ? marginTag(pages[t.page], t.item) : undefined,
+      tag: sec.kind === 'test' || sec.kind === 'practice' ? marginTag(pages[t.page], t.item) : undefined,
       mc: !!sec.mc && t.number >= sec.mc[0] && t.number <= sec.mc[1],
     });
   }
@@ -252,6 +298,7 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
     sections: sections.filter((s) => questions.some((q) => q.section === s.key)),
     questions,
     answersFrom,
+    practice,
   };
 }
 
@@ -293,10 +340,20 @@ function pageBottom(page: PageText): number {
   return key ? top(page, key) - key.h - 4 : page.height - FOOTER;
 }
 
-/** Right edge for unframed questions: left of any margin tags on the right. */
-function pageRight(page: PageText): number {
-  const tags = page.items.filter((i) => i.sans && TAG.test(i.str.trim()) && i.x > page.width * 0.75);
-  return tags.length ? Math.min(...tags.map((t) => t.x)) - 8 : page.width - 50;
+/**
+ * Right edge for unframed questions: left of the margin tags and worksheet
+ * icons on the right, beside the part of the page from top to bottom.
+ */
+function pageRight(page: PageText, from = 0, to = page.height): number {
+  const margin = page.items.filter((i) => {
+    if (!i.sans || i.rotated || i.x <= page.width * 0.78) return false;
+    const s = i.str.trim();
+    if (!TAG.test(s) && !(i.h < 8.5 && /^[A-Z0-9]/.test(s) && !/^(Foundation|Mastery|Complex)$/.test(s))) return false;
+    // A worksheet icon's picture sits above its caption.
+    const t = top(page, i);
+    return t + 2 >= from && t - i.h - 34 <= to;
+  });
+  return margin.length ? Math.min(...margin.map((t) => t.x)) - 8 : page.width - 50;
 }
 
 /**
@@ -306,7 +363,10 @@ function pageRight(page: PageText): number {
 function lineTop(page: PageText, it: TextItem, pad = 2, reach = 0.75): number {
   let y = it.y + it.h;
   for (const o of page.items) {
-    if (o.y > it.y + 0.5 && o.y <= it.y + it.h * reach && o.x >= it.x - 2 && o.x < it.x + 250) y = Math.max(y, o.y + o.h);
+    if (o.x < it.x - 2 || o.x >= it.x + 250) continue;
+    if (o.y > it.y + 0.5 && o.y <= it.y + it.h * reach) y = Math.max(y, o.y + o.h);
+    // A vector arrow over a letter: only the lower part of the tall symbol is drawn.
+    else if (o.y > it.y + 0.5 && o.y <= it.y + it.h * 1.1 && o.h > it.h * 1.15 && /^[^\p{L}\p{N}]$/u.test(o.str.trim())) y = Math.max(y, o.y + o.h * 0.3);
   }
   return page.height - y - pad;
 }
@@ -340,7 +400,9 @@ function answerTop(page: PageText, it: TextItem): number {
       !col.some((c) => c !== o && c.h >= it.h * 0.95 && Math.abs(c.y - o.y) < 3);
     // Fraction numerators and powers sit up to most of a line above the baseline.
     const raised = y === o.y && o.y > it.y && o.y <= it.y + it.h * 0.9;
-    if (Math.abs(y - it.y) < 3.5 || script || raised) ownTop = Math.max(ownTop, o.y + o.h * 0.75);
+    // A vector arrow over a letter comes as one tall symbol, but only its lower part is drawn.
+    const arrow = raised && Math.abs(y - it.y) >= 3.5 && o.h > it.h * 1.15 && /^[^\p{L}\p{N}]$/u.test(o.str.trim());
+    if (Math.abs(y - it.y) < 3.5 || script || raised) ownTop = Math.max(ownTop, o.y + o.h * (arrow ? 0.3 : 0.75));
     else if (y > it.y + 3.5) prevBottom = Math.min(prevBottom, o.y - o.h * 0.2);
   }
   const cut = Number.isFinite(prevBottom) && prevBottom > ownTop ? Math.min((prevBottom + ownTop) / 2, ownTop + 4) : ownTop + 0.3;
@@ -354,16 +416,17 @@ function questionRegions(pages: PageText[], frames: (page: number) => Frame[], t
   const page = pages[t.page];
   const qTop = numberTop(page, t.item);
   const frame = frameAt(frames(t.page), t.item.x, top(page, t.item));
-  const right = (p: number, f?: Frame) => (f ? f.x1 - 1.5 : pageRight(pages[p]));
+  const right = (p: number, f?: Frame, from?: number, to?: number) => (f ? f.x1 - 1.5 : pageRight(pages[p], from, to));
   const bottom = (p: number, f?: Frame) => (f ? f.bottom - 1.5 : pageBottom(pages[p]));
   const regions: Region[] = [];
   // Badges stick out a little left of the number, but never past the frame.
   const x0 = frame ? Math.max(numberLeft(t.item), frame.x0 + 1.5) : numberLeft(t.item);
   if (next && next.page === t.page) {
-    regions.push({ page: t.page, x0, x1: right(t.page, frame), top: qTop, bottom: numberTop(page, next.item) - 1 });
+    const end = numberTop(page, next.item) - 1;
+    regions.push({ page: t.page, x0, x1: right(t.page, frame, qTop, end), top: qTop, bottom: end });
     return regions;
   }
-  regions.push({ page: t.page, x0, x1: right(t.page, frame), top: qTop, bottom: bottom(t.page, frame) });
+  regions.push({ page: t.page, x0, x1: right(t.page, frame, qTop, bottom(t.page, frame)), top: qTop, bottom: bottom(t.page, frame) });
   if (next) {
     // Runs on over the page (rarely more than one).
     for (let p = t.page + 1; p <= next.page && p <= t.page + 2; p++) {
@@ -373,7 +436,7 @@ function questionRegions(pages: PageText[], frames: (page: number) => Frame[], t
       const left = Math.max(onPage.length ? Math.min(...onPage.map((o) => numberLeft(o.item))) : 50, f ? f.x0 + 1.5 : 0);
       const end = p === next.page ? numberTop(pg, next.item) - 1 : bottom(p, f);
       const start = f && f.top < end ? f.top + 1.5 : HEADER;
-      if (end - start > 6) regions.push({ page: p, x0: left, x1: right(p, f), top: start, bottom: end, continued: true });
+      if (end - start > 6) regions.push({ page: p, x0: left, x1: right(p, f, start, end), top: start, bottom: end, continued: true });
     }
   } else if (frame && t.page + 1 < pages.length) {
     // Last question: carry on only into a frame at the top of the next page with no other questions in it.
@@ -407,7 +470,7 @@ const ANSWER_NUMBER = /^(\d{1,2})(,)?(?:\s+[a-z])?$/;
  * previous chapter and the last can start the next, so only the part under
  * "Chapter N" counts.
  */
-export function findAnswers(pages: PageText[], chapter: number, from = answersStart(pages)): BookAnswer[] {
+export function findAnswers(pages: PageText[], chapter: number, from = answersStart(pages), practice?: number): BookAnswer[] {
   const tokens: AnswerToken[] = [];
   let inChapter = false;
   let section = '';
@@ -422,10 +485,17 @@ export function findAnswers(pages: PageText[], chapter: number, from = answersSt
       for (const line of lines(items)) {
         const text = lineText(line);
         const first = line[0];
+        // A practice set's answers sit under "Practice set 1", between two chapters' answers.
+        if (practice !== undefined && isPracticeHeading(line, practice)) {
+          inChapter = true;
+          section = `practice${practice}`;
+          last = 0;
+          continue;
+        }
         const ch = /^Chapter (\d{1,2})$/.exec(text);
         if (ch && first.h >= 11) {
           if (inChapter) tokens.push({ page: p, col, item: first, stop: true, section: '', number: 0 });
-          inChapter = Number(ch[1]) === chapter;
+          inChapter = practice === undefined && Number(ch[1]) === chapter;
           section = '';
           continue;
         }

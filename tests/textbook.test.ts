@@ -8,6 +8,8 @@ import {
   findQuestions,
   levelOf,
   looksLikeTextbook,
+  practiceSetNumber,
+  practiceTitle,
   type Frame,
 } from '../src/lib/practice/textbook';
 import { levelChosen, withLevels } from '../src/lib/practice/mix';
@@ -98,6 +100,29 @@ describe('textbook chapters', () => {
   it('gets the chapter from the file name', () => {
     expect(chapterFromName('Ext 1 Ch 03 Trigonometric functions.pdf')).toEqual({ chapter: 3, title: 'Trigonometric functions' });
     expect(chapterFromName('worksheet.pdf')).toBeNull();
+  });
+});
+
+describe('practice sets', () => {
+  it('reads a practice set as one section, with every answer from under its own heading', () => {
+    const { pages, frames } = load('practice2');
+    expect(looksLikeTextbook(pages)).toBe(true);
+    expect(practiceSetNumber(pages)).toBe(2);
+    const book = findQuestions(pages, frames, 'Ext 1 Practice set 2 (Ch 4-7).pdf');
+    expect(book.practice).toBe(2);
+    expect(book.sections).toEqual([{ key: 'practice2', kind: 'practice', title: 'Practice set 2', mc: [1, 6] }]);
+    expect(book.questions.map((q) => q.number)).toEqual([...Array(83).keys()].map((i) => i + 1));
+    // Every question carries the exercise it comes from.
+    expect(book.questions.filter((q) => !q.tag)).toHaveLength(0);
+    // The answers page starts with the end of chapter 7's answers, which are left out.
+    const answers = findAnswers(pages, book.chapter, book.answersFrom, book.practice);
+    expect(answers.map((a) => a.number)).toEqual(book.questions.map((q) => q.number));
+    expect(answers.every((a) => a.section === 'practice2')).toBe(true);
+    expect(practiceTitle('Practice set 2', book, 'set.pdf')).toBe('Practice set 2 (Ch 4-7)');
+  });
+
+  it('is not mistaken for a chapter', () => {
+    expect(practiceSetNumber(load('ch01').pages)).toBeNull();
   });
 });
 
