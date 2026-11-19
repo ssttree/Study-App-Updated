@@ -11,6 +11,8 @@ import {
   answersStart,
   chapterFromName,
   findAnswers,
+  findWorked,
+  workedStart,
   findFrames,
   findQuestions,
   levelOf,
@@ -129,6 +131,7 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
   }
   const layout = findQuestions(pages, (p) => frames.get(p) ?? [], fileName);
   const answers = findAnswers(pages, layout.chapter, layout.answersFrom, layout.practice);
+  const worked = findWorked(pages, layout.chapter, layout.practice);
   const chapterTitle = layout.title || chapterFromName(fileName)?.title || `Chapter ${layout.chapter}`;
   const subject = bookSubject(layout.book) || guessOtherSubject(fileName, fileName);
   const topic = layout.practice === undefined ? `Ch ${layout.chapter} ${chapterTitle}` : 'Practice sets';
@@ -158,6 +161,7 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
     onProgress?.(`cutting out question ${++done} of ${total}`);
     const section = layout.sections.find((s) => s.key === q.section)!;
     const answer = answers.find((a) => a.section === q.section && a.number === q.number);
+    const solution = worked.find((a) => a.section === q.section && a.number === q.number);
     pdf.releaseBefore(Math.min(...q.regions.map((r) => r.page)));
     const level = levelOf((await pdf.page(q.badge.page)).pixels, q.badge, SCALE);
     const picture = await pdf.crop(q.regions, true, 'image/webp', { thin: 10, gap: 8 });
@@ -166,15 +170,21 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
     else if (section.kind === 'exercise') target = sheets.get(section.key)!;
     else if (section.kind === 'practice') target = sheetFor(section.key, practiceTitle(section.title, layout, fileName));
     else target = sheetFor(section.key, `Ch ${layout.chapter} ${section.kind === 'test' ? 'Test yourself' : 'Challenge exercise'}`);
-    target.pairs.push(makeBookPair(q, section.title, section.kind, level, picture, answer, bookKey));
+    target.pairs.push(makeBookPair(q, section.title, section.kind, level, picture, answer, bookKey, solution));
   }
   // Answers sit together at the back, so crop them in page order.
   const pending = [...sheets.values()].flatMap((s) => s.pairs as BookPair[]).filter((p) => p.answerRegions);
-  pending.sort((a, b) => a.answerRegions![0].page - b.answerRegions![0].page);
+  // With worked solutions the short answer pages are needed all the way through, so only
+  // the worked solution pages already passed are let go.
+  const workedFrom = workedStart(pages);
+  const lastPage = (p: BookPair) => p.answerRegions![p.answerRegions!.length - 1].page;
+  pending.sort((a, b) => lastPage(a) - lastPage(b) || a.answerRegions![0].page - b.answerRegions![0].page);
   done = 0;
   for (const p of pending) {
     onProgress?.(`cutting out answer ${++done} of ${pending.length}`);
-    pdf.releaseBefore(p.answerRegions![0].page);
+    const first = Math.min(...p.answerRegions!.filter((r) => r.page >= workedFrom).map((r) => r.page));
+    if (Number.isFinite(first)) for (let i = workedFrom; i < first; i++) pdf.release(i);
+    else pdf.releaseBefore(p.answerRegions![0].page);
     p.solution = await pdf.crop(p.answerRegions!, true, 'image/webp', { thin: 8, gap: 3 });
     if (!p.solution) p.problems.push('Answer box is empty');
     delete p.answerRegions;
@@ -194,13 +204,14 @@ function makeBookPair(
   picture: Picture | null,
   answer: BookAnswer | undefined,
   book: string,
+  worked?: BookAnswer,
 ): BookPair {
   // A practice set question names the exercise it comes from, to go back to if it goes wrong.
   const label =
     kind === 'exercise' ? `Ex ${q.section} Q${q.number}` : `${sectionTitle} Q${q.number}${kind === 'practice' && q.tag ? ` (${q.tag})` : ''}`;
   const problems: string[] = [];
   if (!picture) problems.push('No question found in its box');
-  if (!answer) problems.push('No matching answer');
+  if (!answer && !worked) problems.push('No matching answer');
   if (!level) problems.push('Level not found');
   if (picture && picture.height > picture.width * TALL) problems.push('Question picture is very tall');
   const letter = q.mc && answer ? answerLetter(answer.text) : null;
@@ -217,6 +228,7 @@ function makeBookPair(
     include: !!picture,
     level: level ?? undefined,
     answerLetter: letter ?? undefined,
-    answerRegions: answer?.regions,
+    // The short answer first, then the worked solution under it when the PDF has one.
+    answerRegions: answer || worked ? [...(answer?.regions ?? []), ...(worked?.regions ?? [])] : undefined,
   };
 }

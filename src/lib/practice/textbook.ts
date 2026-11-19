@@ -16,6 +16,11 @@
 // Answers: two columns, "Chapter 1", then "Exercise 1.01" and the question
 // numbers in bold, sometimes several on one line ("28 26  29 122b  30 38th term").
 //
+// Worked solutions: the publisher's separate worked solutions PDF can be added
+// after the answers, starting with a "WORKED SOLUTIONS" title. Under it each
+// exercise is headed "Exercise 1.01 ...", then "Question 1", "Question 2" down
+// the left, each solution running across the page to the next heading.
+//
 // The pages are cut out as pictures (see pdf.ts), so this file only works out
 // where each question and answer is. Frames and badge colours come from the
 // page pixels (findFrames, levelOf), so the text layout and the pixels can be
@@ -154,6 +159,68 @@ export function looksLikeTextbook(pages: PageText[]): boolean {
 export function answersStart(pages: PageText[]): number {
   const i = pages.findIndex((p) => p.items.some((it) => isAnswersHeading(it)));
   return i < 0 ? pages.length : i;
+}
+
+/** Index of the page that starts the worked solutions, or the page count if there are none. */
+export function workedStart(pages: PageText[]): number {
+  const from = answersStart(pages);
+  for (let p = from; p < pages.length; p++) {
+    if (pages[p].items.some((it) => it.sans && it.h >= 16 && /^WORKED SOLUTIONS$/i.test(it.str.trim()))) return p;
+  }
+  return pages.length;
+}
+
+/** The copyright line and page number along the bottom of a worked solutions page. */
+const WORKED_FOOTER = 52;
+const WORKED_QUESTION = /^Question (\d{1,2})$/;
+
+/**
+ * Finds the worked solution for each question, keyed like the answers
+ * ("1.01", "test1", "challenge1", "practice1"). Each runs from its "Question N"
+ * heading down to the next heading, over the page break when it needs to.
+ */
+export function findWorked(pages: PageText[], chapter: number, practice?: number): BookAnswer[] {
+  const from = workedStart(pages);
+  type Mark = { page: number; top: number; section: string; number: number };
+  const marks: Mark[] = [];
+  let section = practice === undefined ? '' : `practice${practice}`;
+  for (let p = from; p < pages.length; p++) {
+    const page = pages[p];
+    for (const line of lines(page.items.filter((i) => i.y > WORKED_FOOTER))) {
+      const first = line[0];
+      if (!first.sans || first.h < 11) continue;
+      const text = lineText(line);
+      const q = WORKED_QUESTION.exec(text);
+      if (q && first.x < page.width / 3) {
+        if (section) marks.push({ page: p, top: lineTop(page, first), section, number: Number(q[1]) });
+        continue;
+      }
+      if (first.h < 13.5) continue;
+      const ex = /^Exercise (\d{1,2})\.(\d{2})\b/.exec(text);
+      if (ex) section = `${Number(ex[1])}.${ex[2]}`;
+      else if (/^Test yourself/i.test(text)) section = `test${chapter}`;
+      else if (/^Challenge exercise/i.test(text)) section = `challenge${chapter}`;
+      else if (/^Practice set (\d+)/i.test(text)) section = `practice${/^Practice set (\d+)/i.exec(text)![1]}`;
+      else continue;
+      marks.push({ page: p, top: lineTop(page, first), section: '', number: 0 });
+    }
+  }
+  const out: BookAnswer[] = [];
+  for (let i = 0; i < marks.length; i++) {
+    const m = marks[i];
+    if (!m.number) continue;
+    const next = marks[i + 1];
+    const endPage = next ? next.page : pages.length - 1;
+    const regions: Region[] = [];
+    for (let p = m.page; p <= endPage; p++) {
+      const pg = pages[p];
+      const top = p === m.page ? m.top - 2 : HEADER;
+      const bottom = next && p === next.page ? next.top - 4 : pg.height - WORKED_FOOTER;
+      if (bottom - top > 4) regions.push({ page: p, x0: 40, x1: pg.width - 40, top, bottom, continued: p !== m.page });
+    }
+    if (regions.length) out.push({ section: m.section, number: m.number, regions, text: '' });
+  }
+  return out;
 }
 
 /** "ANSWERS" at the start of the answers, or a "Chapter 2" heading inside them. */
@@ -475,7 +542,9 @@ export function findAnswers(pages: PageText[], chapter: number, from = answersSt
   let inChapter = false;
   let section = '';
   let last = 0;
-  for (let p = from; p < pages.length; p++) {
+  // Worked solutions after the answers have headings of their own, so the answers stop there.
+  const end = workedStart(pages);
+  for (let p = from; p < end; p++) {
     const page = pages[p];
     const mid = page.width / 2;
     for (let col = 0; col < 2; col++) {
@@ -529,7 +598,7 @@ export function findAnswers(pages: PageText[], chapter: number, from = answersSt
       }
     }
   }
-  if (inChapter) tokens.push({ page: pages.length - 1, col: 1, item: { str: '', x: 0, y: 0, w: 0, h: 0 }, stop: true, section: '', number: 0 });
+  if (inChapter) tokens.push({ page: end - 1, col: 1, item: { str: '', x: 0, y: 0, w: 0, h: 0 }, stop: true, section: '', number: 0 });
 
   const answers: BookAnswer[] = [];
   for (let i = 0; i < tokens.length; i++) {
