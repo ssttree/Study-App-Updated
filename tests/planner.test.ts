@@ -11,6 +11,9 @@ import { createBackup, parseBackup, restoreBackup } from '../src/lib/backup';
 import { DB_NAME, getAvailability, listTasks, resetDbConnection, saveAvailability, saveTask } from '../src/lib/db';
 import type { DayPlan, Task, TestPlan } from '../src/lib/types';
 
+/** These tests are about the study windows planner, not the default calendar mode. */
+const windowsPlanner = () => ({ ...defaultAvailability(), planMode: 'windows' as const });
+
 // Saturday 24 October 2026
 const TODAY = '2026-10-24';
 let n = 0;
@@ -46,7 +49,7 @@ const at = (key: string) => {
 function input(fields: Partial<PlannerInput> = {}): PlannerInput {
   return {
     today: '2026-10-26', // a Monday in off season
-    availability: defaultAvailability(),
+    availability: windowsPlanner(),
     tasks: [],
     assessments: [],
     saved: new Map(),
@@ -110,7 +113,7 @@ describe('quick add', () => {
 
 describe('study windows', () => {
   it('uses the off season template in October', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     expect(inSoccerSeason('2026-10-26', a)).toBe(false);
     expect(windowsFor('2026-10-26', a).map((w) => w.name)).toEqual(['Bus to school', 'Bus home', 'Before dinner']);
     expect(windowsFor('2026-10-27', a).map((w) => w.name)).toContain('Tuesday night');
@@ -119,7 +122,7 @@ describe('study windows', () => {
   });
 
   it('drops evening desk windows on training nights in soccer season', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     // Tuesday 9 June 2026
     expect(inSoccerSeason('2026-06-09', a)).toBe(true);
     expect(windowsFor('2026-06-09', a).map((w) => w.name)).toEqual(['Bus to school', 'Bus home']);
@@ -130,7 +133,7 @@ describe('study windows', () => {
   });
 
   it('lets one day be changed by hand', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     a.overrides['2026-10-26'] = [];
     expect(windowsFor('2026-10-26', a)).toEqual([]);
   });
@@ -196,7 +199,7 @@ describe('building the plan', () => {
   it('leaves spare time free when auto fill is off', () => {
     const hw = task('Questions', { minutes: 20 });
     const opt = task('Extra set', { required: false, minutes: 15, due: '2026-10-29' });
-    const availability = { ...defaultAvailability(), autoFill: false };
+    const availability = { ...windowsPlanner(), autoFill: false };
     const week = buildWeek(input({ tasks: [hw, opt], availability }));
     const kinds = new Set(week.flatMap((d) => d.plan.items.map((it) => it.kind)));
     expect(kinds.has('problems') || kinds.has('prep') || kinds.has('final')).toBe(false);
@@ -375,7 +378,7 @@ describe('backup', () => {
 
   it('keeps homework, plans and study windows', async () => {
     await saveTask(task('Essay'));
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     a.trainingDays = [1, 3];
     await saveAvailability(a);
     const backup = parseBackup(JSON.parse(JSON.stringify(await createBackup())));
@@ -426,7 +429,7 @@ describe('planner calendar', () => {
   });
 
   it('puts the planning session on its day, after a work shift', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     // 2026-11-22 is a Sunday.
     expect(planningSlot(a, '2026-11-22')).toEqual({ start: 960, end: 980 });
     expect(planningSlot(a, '2026-11-23')).toBeNull();

@@ -5,6 +5,9 @@ import { buildHomeworkSet, newSkill } from '../src/lib/practice/mix';
 import { allKnown } from '../src/lib/practice/save';
 import { taskAttachments, taskSkillIds, type Problem, type Skill, type StudyWindow, type Task } from '../src/lib/types';
 
+/** These tests are about the study windows planner, not the default calendar mode. */
+const windowsPlanner = () => ({ ...defaultAvailability(), planMode: 'windows' as const });
+
 const MON = '2026-10-26';
 let n = 0;
 const id = () => `x${++n}`;
@@ -12,7 +15,7 @@ const id = () => `x${++n}`;
 function input(fields: Partial<PlannerInput> = {}): PlannerInput {
   return {
     today: MON,
-    availability: defaultAvailability(),
+    availability: windowsPlanner(),
     tasks: [],
     assessments: [],
     saved: new Map(),
@@ -50,7 +53,7 @@ describe('study hours', () => {
   });
 
   it('applies to every day, one-off days too, and the weekly totals', () => {
-    const a = { ...defaultAvailability(), latest: '18:00' };
+    const a = { ...windowsPlanner(), latest: '18:00' };
     const desk = windowsFor(MON, a).find((w) => w.kind === 'desk')!;
     expect(desk.start).toBe('17:20');
     expect(desk.minutes).toBe(40);
@@ -62,7 +65,7 @@ describe('study hours', () => {
 
 describe('school study periods', () => {
   it('get revision, never homework', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     a.windows.push(window({ id: 'sp', name: 'Study period', start: '11:00', minutes: 60, kind: 'school', days: [1, 3] }));
     const hw = task({ minutes: 200 });
     const [mon] = buildWeek(input({ availability: a, tasks: [hw] }), 1);
@@ -73,7 +76,7 @@ describe('school study periods', () => {
   });
 
   it('take the flashcards the bus could not fit, leaving room for problems', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     a.windows.push(window({ id: 'sp', start: '11:00', minutes: 60, kind: 'school', days: [1] }));
     const [mon] = buildWeek(input({ availability: a, flashMinutes: () => 150 }), 1);
     const sp = mon.plan.items.filter((it) => it.windowId === 'sp');
@@ -84,7 +87,7 @@ describe('school study periods', () => {
   });
 
   it('vanish on school holidays', () => {
-    const a = defaultAvailability();
+    const a = windowsPlanner();
     a.windows.push(window({ id: 'sp', start: '11:00', minutes: 60, kind: 'school', days: [1] }));
     expect(windowsFor(MON, a, { busy: [], schoolDay: false }).some((w) => w.id === 'sp')).toBe(false);
   });

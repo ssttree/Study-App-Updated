@@ -3,7 +3,7 @@
 
 import { newId, saveTask, savePlans } from '../db';
 import type { DayPlan, PlanItem, Task } from '../types';
-import { remaining, type BuiltDay } from './build';
+import { CALENDAR_WINDOW, remaining, type BuiltDay } from './build';
 import type { QuickTask } from './quickadd';
 
 export function taskFromQuick(q: QuickTask, now = Date.now()): Task {
@@ -91,6 +91,31 @@ export async function moveItem(days: BuiltDay[], fromDate: string, itemId: strin
     { ...from.plan, items: from.plan.items.filter((it) => it.id !== itemId) },
     { ...target, items: [...target.items, moved] },
   ]);
+}
+
+/** Calendar mode: moves an item to a time, on the same day or another one. */
+export async function moveItemTo(days: BuiltDay[], fromDate: string, itemId: string, toDate: string, start: string): Promise<void> {
+  const from = days.find((d) => d.date === fromDate);
+  const item = from?.plan.items.find((it) => it.id === itemId);
+  if (!from || !item) return;
+  const moved: PlanItem = { ...item, windowId: CALENDAR_WINDOW, start, pinned: true, status: 'todo', started: false };
+  if (fromDate === toDate) {
+    await savePlans([withItem(from.plan, itemId, () => moved)]);
+    return;
+  }
+  const to = days.find((d) => d.date === toDate);
+  const target: DayPlan = to?.plan ?? { date: toDate, items: [], built: Date.now() };
+  await savePlans([
+    { ...from.plan, items: from.plan.items.filter((it) => it.id !== itemId) },
+    { ...target, items: [...target.items, moved] },
+  ]);
+}
+
+/** Calendar mode: puts something from the to do list on a day at a time. */
+export async function placeItem(days: BuiltDay[], date: string, item: Omit<PlanItem, 'id' | 'windowId' | 'pinned' | 'status'>): Promise<void> {
+  const plan: DayPlan = days.find((d) => d.date === date)?.plan ?? { date, items: [], built: Date.now() };
+  const full: PlanItem = { ...item, id: newId(), windowId: CALENDAR_WINDOW, pinned: true, status: 'todo' };
+  await savePlans([{ ...plan, items: [...plan.items, full] }]);
 }
 
 export async function addItem(day: BuiltDay, item: PlanItem): Promise<void> {

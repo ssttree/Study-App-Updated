@@ -27,6 +27,13 @@ export const MIN_SLICE = 10;
 export const MAX_PROBLEMS = 50;
 /** Window id for items added with "I've got 20 more minutes". */
 export const EXTRA_WINDOW = 'extra';
+/** Window id for items you placed at a time yourself on the calendar. */
+export const CALENDAR_WINDOW = 'cal';
+
+/** True when the planner is a plain calendar you place study on (the default). */
+export function calendarMode(a: Availability): boolean {
+  return a.planMode !== 'windows';
+}
 
 export interface PlannerInput {
   today: string;
@@ -98,6 +105,7 @@ function buildDay(
   lastSubject: string,
 ): BuiltDay {
   const makeId = input.newId ?? (() => crypto.randomUUID());
+  if (calendarMode(input.availability)) return calendarDay(date, input);
   const windows = windowsFor(date, input.availability, input.context?.(date));
   const ids = new Set(windows.map((w) => w.id));
   const taskById = new Map(input.tasks.map((t) => [t.id, t]));
@@ -243,7 +251,7 @@ function buildDay(
   }
 
   // Pinned items whose window has gone (or extra time) show under "Extra time".
-  for (const it of items) if (!ids.has(it.windowId)) it.windowId = EXTRA_WINDOW;
+  for (const it of items) if (!ids.has(it.windowId) && !it.start) it.windowId = EXTRA_WINDOW;
 
   const order = new Map(windows.map((w, i) => [w.id, i]));
   const kindOrder = { flashcards: 0, homework: 1, prep: 2, final: 2, problems: 3 };
@@ -256,6 +264,27 @@ function buildDay(
     free,
     warnings,
   };
+}
+
+/**
+ * Calendar mode: nothing is planned for you. The day is whatever you placed
+ * on it, less homework for tasks that are finished or gone.
+ */
+function calendarDay(date: string, input: PlannerInput): BuiltDay {
+  const taskById = new Map(input.tasks.map((t) => [t.id, t]));
+  const saved = input.saved.get(date);
+  const items = (saved?.items ?? []).filter((it) => {
+    // Left over from the windows planner and never touched: not yours, so it goes.
+    if (!it.start && !keptItem(it)) return false;
+    if (it.kind === 'homework' && it.status === 'todo') {
+      const t = it.taskId ? taskById.get(it.taskId) : undefined;
+      if (!t || t.status !== 'open') return false;
+    }
+    return true;
+  });
+  for (const it of items) if (!it.start) it.windowId = EXTRA_WINDOW;
+  items.sort((a, b) => (a.start ?? '99').localeCompare(b.start ?? '99'));
+  return { date, windows: [], plan: { date, items, built: input.now ?? Date.now(), closed: saved?.closed }, free: {}, warnings: [] };
 }
 
 interface Choice {

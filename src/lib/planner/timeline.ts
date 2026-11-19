@@ -36,6 +36,11 @@ export function layoutDay(windows: StudyWindow[], items: PlanItem[]): DayLayout 
   const timed: TimedItem[] = [];
   const loose: PlanItem[] = [];
   for (const item of items) {
+    if (item.start && item.status !== 'skipped') {
+      const start = clockMinutes(item.start);
+      timed.push({ item, windowId: item.windowId, start, end: start + Math.max(1, item.minutes) });
+      continue;
+    }
     const w = byId.get(item.windowId);
     if (!w || item.status === 'skipped') {
       loose.push(item);
@@ -60,6 +65,24 @@ export function visibleRange(spans: Span[], fallback: Span = { start: 15 * 60, e
   if (end - start < minSpan) start = Math.max(0, end - minSpan);
   return { start, end };
 }
+
+/**
+ * The first time from `from` (rounded up to `step` minutes) where `minutes`
+ * fit without touching anything in `busy`, ending by `until`. Null if none.
+ */
+export function firstFree(busy: Span[], minutes: number, from: number, until = 22 * 60, step = 15): number | null {
+  const sorted = [...busy].sort((x, y) => x.start - y.start);
+  let start = Math.ceil(from / step) * step;
+  for (const b of sorted) {
+    if (b.end <= start) continue;
+    if (b.start >= start + minutes) break;
+    start = Math.ceil(b.end / step) * step;
+  }
+  return start + minutes <= until ? start : null;
+}
+
+/** HH:MM for minutes after midnight. */
+export const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 // The weekly planning session: a set time (Sunday afternoon by default) to do
 // the weekly review and look over the coming week.

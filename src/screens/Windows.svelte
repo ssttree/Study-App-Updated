@@ -34,6 +34,13 @@
   }
   load();
 
+  const windowsMode = $derived(a?.planMode === 'windows');
+  function setMode(mode: 'calendar' | 'windows') {
+    if (!a) return;
+    a.planMode = mode;
+    changed();
+  }
+
   const shown = $derived(a ? a.windows.filter((w) => w.season === 'all' || w.season === season) : []);
   const totals = $derived(a ? weeklyMinutes($state.snapshot(a) as Availability, season) : null);
   const overrides = $derived(
@@ -132,15 +139,35 @@
 
 <main class="page wide">
   <section class="head">
-    <div class="eyebrow"><a href={href('planner')}>Planner</a> / Study windows</div>
-    <h1>Study windows</h1>
-    <p class="muted">
-      The times you <em>can</em> study in a normal week. Each window has a kind that tells the planner what fits there.
-      Change a single day below for one-offs like a late shift or an excursion.
-    </p>
+    <div class="eyebrow"><a href={href('planner')}>Planner</a> / {windowsMode ? 'Study windows' : 'Settings'}</div>
+    <h1>{windowsMode ? 'Study windows' : 'Planner settings'}</h1>
+    {#if windowsMode}
+      <p class="muted">
+        The times you <em>can</em> study in a normal week. Each window has a kind that tells the planner what fits there.
+        Change a single day below for one-offs like a late shift or an excursion.
+      </p>
+    {:else}
+      <p class="muted">The planner is a calendar: you put study where you want it. These set the hours it shows and your weekly planning time.</p>
+    {/if}
   </section>
 
   {#if a}
+    <section class="panel hours">
+      <div class="field">
+        <span>How the planner works</span>
+        <span class="muted small">
+          {windowsMode
+            ? 'The app fills your weekly study windows with flashcards, homework and practice.'
+            : 'A plain calendar with your classes, work and events. You drag study onto it from the to do list.'}
+        </span>
+      </div>
+      <div class="seg-mode" role="group" aria-label="Planner mode">
+        <button class="btn small" class:on={!windowsMode} aria-pressed={!windowsMode} onclick={() => setMode('calendar')}>Calendar, I place study</button>
+        <button class="btn small" class:on={windowsMode} aria-pressed={windowsMode} onclick={() => setMode('windows')}>Study windows, app fills them</button>
+      </div>
+    </section>
+
+    {#if windowsMode}
     <div class="tabs" role="tablist">
       <button role="tab" class="btn small" class:on={season === 'off'} aria-selected={season === 'off'} onclick={() => (season = 'off')}>
         Off season
@@ -162,11 +189,16 @@
         </span>
       {/if}
     </div>
+    {/if}
 
     <section class="panel hours">
       <div class="field">
-        <span>Study hours</span>
-        <span class="muted small">Windows at home and school are trimmed to fit, so nothing is planned outside them. The bus is left alone.</span>
+        <span>{windowsMode ? 'Study hours' : 'Hours the calendar shows'}</span>
+        <span class="muted small">
+          {windowsMode
+            ? 'Windows at home and school are trimmed to fit, so nothing is planned outside them. The bus is left alone.'
+            : 'Add puts things in free time between these. Blank means 7am to 10pm.'}
+        </span>
       </div>
       <label class="field">
         Not before
@@ -217,6 +249,7 @@
       {/if}
     </section>
 
+    {#if windowsMode}
     {#if season === 'soccer'}
       <section class="panel season">
         <label class="field">Season starts<input type="date" value={mdToDate(a.soccerStart)} onchange={(e) => setSeason('soccerStart', e.currentTarget.value)} /></label>
@@ -323,8 +356,10 @@
       {/each}
     </section>
 
+    {/if}
+
     <div class="save-bar">
-      <button class="btn primary" onclick={save} disabled={!dirty}>Save windows</button>
+      <button class="btn primary" onclick={save} disabled={!dirty}>{windowsMode ? 'Save windows' : 'Save'}</button>
       {#if saved}<span class="muted">Saved. The planner rebuilds around them.</span>{/if}
     </div>
   {/if}
@@ -470,5 +505,10 @@
     padding: 14px 0;
     background: var(--bg);
     border-top: 1px solid var(--line);
+  }
+  .seg-mode {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 </style>
