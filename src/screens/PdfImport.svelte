@@ -273,9 +273,10 @@
     <h1>Import PDFs</h1>
     {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
-      Drop in one or more worksheets, or a textbook chapter. The app finds each question and its worked solution
+      Drop in one or more worksheets, or a textbook chapter or practice set. The app finds each question and its worked solution
       and cuts them out as pictures. A Maths In Focus chapter becomes one skill per exercise, with each question
-      tagged Foundation, Mastery or Complex, and its Test yourself questions join the exercise they test. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
+      tagged Foundation, Mastery or Complex, and its Test yourself questions join the exercise they test. A practice
+      set becomes a skill of its own. Each worksheet becomes a skill, named after its title, and is switched on since your teacher has
       taught it. Pairs that look right are ticked already; you only need to check the ones marked.
     </p>
   </section>

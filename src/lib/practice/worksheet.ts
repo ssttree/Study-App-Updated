@@ -15,6 +15,7 @@ import {
   findQuestions,
   levelOf,
   looksLikeTextbook,
+  practiceTitle,
   type BookAnswer,
   type BookLayout,
   type BookQuestion,
@@ -127,10 +128,10 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
     pdf.release(p);
   }
   const layout = findQuestions(pages, (p) => frames.get(p) ?? [], fileName);
-  const answers = findAnswers(pages, layout.chapter, layout.answersFrom);
+  const answers = findAnswers(pages, layout.chapter, layout.answersFrom, layout.practice);
   const chapterTitle = layout.title || chapterFromName(fileName)?.title || `Chapter ${layout.chapter}`;
   const subject = bookSubject(layout.book) || guessOtherSubject(fileName, fileName);
-  const topic = `Ch ${layout.chapter} ${chapterTitle}`;
+  const topic = layout.practice === undefined ? `Ch ${layout.chapter} ${chapterTitle}` : 'Practice sets';
   const bookKey = (layout.book || fileName).replace(/\s+/g, ' ').trim();
 
   const sheets = new Map<string, AnalysedSheet>();
@@ -163,6 +164,7 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
     let target: AnalysedSheet;
     if (section.kind === 'test' && q.tag && sheets.has(q.tag)) target = sheets.get(q.tag)!;
     else if (section.kind === 'exercise') target = sheets.get(section.key)!;
+    else if (section.kind === 'practice') target = sheetFor(section.key, practiceTitle(section.title, layout, fileName));
     else target = sheetFor(section.key, `Ch ${layout.chapter} ${section.kind === 'test' ? 'Test yourself' : 'Challenge exercise'}`);
     target.pairs.push(makeBookPair(q, section.title, section.kind, level, picture, answer, bookKey));
   }
@@ -193,7 +195,9 @@ function makeBookPair(
   answer: BookAnswer | undefined,
   book: string,
 ): BookPair {
-  const label = kind === 'exercise' ? `Ex ${q.section} Q${q.number}` : `${sectionTitle} Q${q.number}`;
+  // A practice set question names the exercise it comes from, to go back to if it goes wrong.
+  const label =
+    kind === 'exercise' ? `Ex ${q.section} Q${q.number}` : `${sectionTitle} Q${q.number}${kind === 'practice' && q.tag ? ` (${q.tag})` : ''}`;
   const problems: string[] = [];
   if (!picture) problems.push('No question found in its box');
   if (!answer) problems.push('No matching answer');
