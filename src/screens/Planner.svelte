@@ -7,15 +7,20 @@
     completeItem,
     dropTask,
     moveItem,
+    moveItemTo,
+    placeItem,
+    removeItem,
     reopenItem,
     rescheduleTask,
+    setMinutes,
     setSubject,
     shrinkTask,
     skipItem,
     startItem,
     togglePin,
   } from '../lib/planner/actions';
-  import { ASK_AFTER_CARRIES, EXTRA_WINDOW, extraItem, type BuiltDay } from '../lib/planner/build';
+  import { ASK_AFTER_CARRIES, CALENDAR_WINDOW, EXTRA_WINDOW, calendarMode, extraItem, type BuiltDay } from '../lib/planner/build';
+  import { entryItem, trayFor, type TrayEntry } from '../lib/planner/tray';
   import { addDays, clockMinutes, clockText, dayLabel, dueLabel, keyToTime, minutesText, weekday } from '../lib/planner/dates';
   import { windowsFor } from '../lib/planner/availability';
   import { dayEvents, type DayEvent } from '../lib/planner/calendar';
@@ -25,7 +30,7 @@
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
   import { listWeeklyReviews, saveAvailability } from '../lib/db';
-  import { layoutDay, planningSlot, visibleRange, type DayLayout, type Span, type TimedItem } from '../lib/planner/timeline';
+  import { firstFree, hhmm, layoutDay, planningSlot, visibleRange, type DayLayout, type Span, type TimedItem } from '../lib/planner/timeline';
   import { reviewWeek } from '../lib/progress/review';
   import { untrack } from 'svelte';
   import { KINDS } from '../lib/planner/labels';
@@ -109,6 +114,7 @@
     const d = new Date(data.now);
     const nowMinutes = d.getHours() * 60 + d.getMinutes();
     const ends = (it: PlanItem) => {
+      if (it.start) return clockMinutes(it.start) + it.minutes;
       const w = today.windows.find((x) => x.id === it.windowId);
       return w ? clockMinutes(w.start) + w.minutes : 24 * 60;
     };
@@ -156,6 +162,10 @@
     if (!data) return;
     const tomorrow = data.days.find((d) => d.date === addDays(day.date, 1));
     if (!tomorrow) return;
+    if (calMode && item.start) {
+      act(() => moveItemTo(data!.days, day.date, item.id, tomorrow.date, item.start!));
+      return;
+    }
     const kind = item.kind === 'flashcards' ? 'bus' : item.optional ? 'flexible' : 'desk';
     const w = tomorrow.windows.find((x) => x.kind === kind) ?? tomorrow.windows.find((x) => x.kind === 'desk') ?? tomorrow.windows[0];
     act(() => moveItem(data!.days, day.date, item.id, tomorrow.date, w?.id ?? EXTRA_WINDOW));
@@ -169,7 +179,12 @@
   function moreTime() {
     if (!data || !today) return;
     const item = extraItem(today, data.input);
-    if (item) act(() => addItem(today!, item));
+    if (!item) return;
+    if (calMode) {
+      const start = freeTime(today.date, item.minutes);
+      if (start !== null) Object.assign(item, { start: hhmm(start), windowId: CALENDAR_WINDOW });
+    }
+    act(() => addItem(today!, item));
   }
 
   function startLink(day: BuiltDay, item: PlanItem) {
@@ -180,6 +195,8 @@
   // Drag and drop between windows and days.
   function dragStart(e: DragEvent, day: BuiltDay, item: PlanItem) {
     dragging = `${day.date}|${item.id}`;
+    dragMinutes = item.minutes;
+    grab = e.currentTarget instanceof HTMLElement ? e.clientY - e.currentTarget.getBoundingClientRect().top : 0;
     e.dataTransfer?.setData('text/plain', dragging);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
   }
@@ -197,6 +214,114 @@
     if (date < data.today) return;
     act(() => moveItem(data!.days, fromDate, itemId, date, windowId));
   }
+
+  // Calendar mode: drop anywhere on a day, at the time under the pointer.
+  /** How far down the dragged block it was picked up, so it lands where it looks like it will. */
+  let grab = 0;
+  let dragMinutes = 30;
+  let preview = $state<{ date: string; start: number; minutes: number } | null>(null);
+
+  function trayStart(e: DragEvent, entry: TrayEntry) {
+    dragging = `tray|${entry.key}`;
+    dragMinutes = entry.minutes;
+    grab = 0;
+    e.dataTransfer?.setData('text/plain', dragging);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
+  }
+  /** The time (snapped to 15 minutes) at a point on a day column. */
+  function timeAt(cal: Cal, e: DragEvent): number {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const px = e.clientY - rect.top - grab;
+    let lo = cal.range.start;
+    let hi = cal.range.end;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cal.y(mid) <= px) lo = mid;
+      else hi = mid;
+    }
+    const snapped = Math.round(lo / 15) * 15;
+    return Math.max(cal.range.start, Math.min(snapped, cal.range.end - 15));
+  }
+  function colOver(e: DragEvent, cal: Cal, date: string) {
+    if (!dragging || !data || date < data.today) return;
+    e.preventDefault();
+    const start = timeAt(cal, e);
+    if (preview?.date !== date || preview.start !== start) preview = { date, start, minutes: dragMinutes };
+  }
+  function colDrop(e: DragEvent, cal: Cal, date: string) {
+    e.preventDefault();
+    const payload = e.dataTransfer?.getData('text/plain') || dragging;
+    const start = hhmm(timeAt(cal, e));
+    dragging = over = null;
+    preview = null;
+    if (!payload || !data || date < data.today) return;
+    const [from, id] = payload.split('|');
+    if (from === 'tray') {
+      const entry = tray.find((t) => t.key === payload.slice(5));
+      if (entry) act(() => placeItem(data!.days, date, entryItem(entry, start)));
+    } else {
+      act(() => moveItemTo(data!.days, from, id, date, start));
+    }
+  }
+  function dragEnd() {
+    dragging = over = null;
+    preview = null;
+  }
+
+  /** Busy times on a day: calendar events, things already placed and the planning session. */
+  function busyOn(date: string): Span[] {
+    if (!data) return [];
+    const day = data.days.find((d) => d.date === date);
+    const placed = day ? layoutDay([], day.plan.items).items : [];
+    const slot = planningSlot(data.input.availability, date, data.input.context?.(date)?.busy ?? []);
+    return [...dayEvents(data.calendars, date).timed, ...placed, ...(slot ? [slot] : [])];
+  }
+  /** The next free time on a day that fits `minutes`: after now today, after school on school days. */
+  function freeTime(date: string, minutes: number): number | null {
+    if (!data) return null;
+    const a = data.input.availability;
+    const busySpans = busyOn(date);
+    let from = a.earliest ? clockMinutes(a.earliest) : 7 * 60;
+    if (date === data.today) from = Math.max(from, nowMinutes);
+    const lessons = dayEvents(data.calendars, date).timed.filter((e) => e.kind === 'lesson');
+    if (lessons.length) from = Math.max(from, Math.max(...lessons.map((l) => l.end)) + 20);
+    return firstFree(busySpans, minutes, from, a.latest ? clockMinutes(a.latest) : 22 * 60);
+  }
+  /** Add: puts a tray entry on the day at its next free time (or with no time when the day is full). */
+  function addEntry(entry: TrayEntry) {
+    if (!data) return;
+    const date = trayDate;
+    const at = freeTime(date, entry.minutes);
+    const item = entryItem(entry, at === null ? '' : hhmm(at));
+    if (at === null) delete item.start;
+    act(() => placeItem(data!.days, date, item));
+  }
+  function setStart(day: BuiltDay, item: PlanItem, e: Event) {
+    const value = (e.currentTarget as HTMLInputElement).value;
+    if (value && data) act(() => moveItemTo(data!.days, day.date, item.id, day.date, value));
+  }
+  function onMinutes(day: BuiltDay, item: PlanItem, e: Event) {
+    const value = Number((e.currentTarget as HTMLSelectElement).value);
+    if (value) act(() => setMinutes(day, item, value));
+  }
+
+  const calMode = $derived(data ? calendarMode(data.input.availability) : true);
+  /** The day the to do tray adds to: the day shown, or today in the week view. */
+  const trayDate = $derived(data && shown ? (view === 'day' && shown.date >= data.today ? shown.date : data.today) : '');
+  const tray = $derived(
+    data && trayDate
+      ? trayFor({
+          date: trayDate,
+          today: data.today,
+          tasks: data.tasks,
+          assessments: data.assessments,
+          plans: data.days.map((d) => d.plan),
+          flashMinutes: data.input.flashMinutes,
+          problemSubjects: data.input.problemSubjects,
+          problemMinutes: data.settings.problemMinutes,
+        })
+      : [],
+  );
 
   function newDate(task: Task, e: Event) {
     const value = (e.currentTarget as HTMLInputElement).value;
@@ -258,7 +383,7 @@
   const GAP_PX = 26;
 
   function calendarOf(days: BuiltDay[], compact: boolean): Cal {
-    const ppm = compact ? 0.9 : 1.6;
+    const ppm = calMode ? (compact ? 0.62 : 1.1) : compact ? 0.9 : 1.6;
     const out = days.map((day) => {
       const busy = data?.input.context?.(day.date)?.busy ?? [];
       const slot = data ? planningSlot(data.input.availability, day.date, busy) : null;
@@ -272,7 +397,14 @@
       };
     });
     const spans = out.flatMap((c) => [...c.lay.windows, ...c.lay.items, ...c.events, ...(c.planning ? [c.planning] : [])]);
-    const range = visibleRange(spans);
+    let range = visibleRange(spans);
+    if (calMode && data) {
+      // A plain calendar shows your whole day, so there is room to drop things anywhere.
+      const a = data.input.availability;
+      const from = a.earliest ? clockMinutes(a.earliest) : 7 * 60;
+      const to = a.latest ? clockMinutes(a.latest) : 22 * 60;
+      range = visibleRange([...spans, { start: from, end: to }]);
+    }
 
     // Squeeze empty stretches of two hours or more (whole hours only) so the busy parts stay big.
     const merged: Span[] = [];
@@ -282,7 +414,7 @@
       else merged.push({ ...sp });
     }
     const gaps: Span[] = [];
-    for (let i = 1; i < merged.length; i++) {
+    for (let i = 1; i < merged.length && !calMode; i++) {
       const start = Math.ceil(merged[i - 1].end / 60) * 60 + 30;
       const end = Math.floor(merged[i].start / 60) * 60 - 30;
       if (end - start >= 90) gaps.push({ start, end });
@@ -384,7 +516,7 @@
       else if (date < data.today) {
         out.push({
           date,
-          windows: windowsFor(date, data.input.availability, data.input.context?.(date)),
+          windows: calMode ? [] : windowsFor(date, data.input.availability, data.input.context?.(date)),
           plan: data.input.saved.get(date) ?? { date, items: [], built: 0 },
           free: {},
           warnings: [],
@@ -413,8 +545,12 @@
         <div class="eyebrow"><a href={href('planner')}>Planner</a> / {dayLabel(shown.date, data.today)}</div>
         <h1>{new Date(shown.date + 'T12:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
         <p class="lead muted">
-          {minutesText(planned(shown))} planned in {plural(shown.windows.length, 'window')}. Tick, move or skip anything, or change
-          this day's windows under the calendar.
+          {#if calMode}
+            {minutesText(planned(shown))} of study on the calendar. Drag things from To do onto a time, or move what's there.
+          {:else}
+            {minutesText(planned(shown))} planned in {plural(shown.windows.length, 'window')}. Tick, move or skip anything, or change
+            this day's windows under the calendar.
+          {/if}
         </p>
         <div class="actions"><a class="btn" href={href('planner')}>Back to today</a></div>
       </section>
@@ -428,13 +564,21 @@
           {@const text = itemText(next, tasks, assessments, data.today)}
           <h1>Next: {text.title}</h1>
           <p class="lead muted">
-            {minutesText(next.minutes)} in {today.windows.find((w) => w.id === next.windowId)?.name ?? 'extra time'}. {text.detail}.
+            {#if next.start}
+              {minutesText(next.minutes)} at {clockText(clockMinutes(next.start))}. {text.detail}.
+            {:else}
+              {minutesText(next.minutes)} in {today.windows.find((w) => w.id === next.windowId)?.name ?? 'extra time'}. {text.detail}.
+            {/if}
           </p>
           <div class="actions">
             <a class="btn primary" href={itemLink(next, tasks)} onclick={() => startLink(today, next)}>Start</a>
             <button class="btn" onclick={moreTime} disabled={busy}>I've got 20 more minutes</button>
           </div>
-        {:else if today.windows.length === 0}
+        {:else if calMode && !today.plan.items.length}
+          <h1>Nothing on the calendar yet</h1>
+          <p class="lead muted">Drag something from To do onto a free time, or press Add to put it in the next gap.</p>
+          <div class="actions"><button class="btn" onclick={moreTime} disabled={busy}>I've got 20 minutes now</button></div>
+        {:else if !calMode && today.windows.length === 0}
           <h1>No study windows today</h1>
           <p class="lead muted">Enjoy the day off.</p>
           <div class="actions"><button class="btn" onclick={moreTime} disabled={busy}>I've got 20 minutes anyway</button></div>
@@ -504,6 +648,7 @@
           {@render calendar(cal, false)}
           {@render looseItems(shown, cal.days[0].lay.loose)}
 
+          {#if !calMode}
           <section class="day-edit">
             {#if editing}
               <h2>Windows for {dayLabel(shown.date, data.today)}</h2>
@@ -540,6 +685,7 @@
               </div>
             {/if}
           </section>
+          {/if}
         {:else}
           <div class="week-scroll">
             {@render calendar(calendarOf(weekDays, true), true)}
@@ -548,10 +694,40 @@
       </div>
 
       <aside class="side">
+        {#if calMode}
+          <section class="panel tray" aria-label="To do">
+            <div class="tray-head">
+              <h2>To do</h2>
+              <span class="muted small">for {dayLabel(trayDate, data.today)}</span>
+            </div>
+            <p class="muted small tray-hint">Drag onto a time, or Add puts it in the next free gap.</p>
+            {#each tray as entry (entry.key)}
+              <div
+                class="tray-item"
+                class:urgent={entry.urgent}
+                style:--c={itemColour({ kind: entry.kind, subjects: entry.subjects } as PlanItem)}
+                role="listitem"
+                draggable="true"
+                ondragstart={(e) => trayStart(e, entry)}
+                ondragend={dragEnd}
+                title="Drag onto the calendar"
+              >
+                <span class="tray-text">
+                  <span class="tray-title">{entry.title}</span>
+                  <span class="muted small">{entry.minutes} min · {entry.detail}</span>
+                </span>
+                <button class="btn small" onclick={() => addEntry(entry)} disabled={busy}>Add</button>
+              </div>
+            {:else}
+              <p class="muted small">Nothing waiting. Add homework below.</p>
+            {/each}
+          </section>
+        {/if}
         <section class="panel add">
           <QuickAdd today={data.today} onadded={() => reload()} />
         </section>
 
+        {#if !calMode}
         <label class="auto panel" title="When off, spare study time stays free instead of getting problems, test prep and revision">
           <input type="checkbox" checked={autoFill} onchange={toggleAutoFill} disabled={busy} />
           <span>
@@ -559,6 +735,7 @@
             <span class="muted small">{autoFill ? 'Spare time gets problems, test prep and revision.' : 'Spare time is left free.'}</span>
           </span>
         </label>
+        {/if}
 
         <nav class="links">
           <a class="link" href={href('planner', 'homework')}>
@@ -578,8 +755,8 @@
           </a>
           <a class="link" href={href('planner', 'windows')}>
             <span class="dot"></span>
-            <span class="name">Study windows</span>
-            <span class="mono muted small">weekly times</span>
+            <span class="name">{calMode ? 'Planner settings' : 'Study windows'}</span>
+            <span class="mono muted small">{calMode ? 'hours, planning time' : 'weekly times'}</span>
           </a>
           <a class="link" href={href('planner', 'connect')}>
             <span class="dot" style:background="var(--info)"></span>
@@ -619,7 +796,18 @@
       {/each}
       {#each cal.days as c (c.day.date)}
         {@const day = c.day}
-        <div class="col" class:today={day.date === data!.today} class:past={day.date < data!.today}>
+        <div
+          class="col"
+          class:today={day.date === data!.today}
+          class:past={day.date < data!.today}
+          role="group"
+          aria-label={dayLabel(day.date, data!.today)}
+          ondragover={(e) => calMode && colOver(e, cal, day.date)}
+          ondragleave={(e) => {
+            if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) preview = null;
+          }}
+          ondrop={(e) => calMode && colDrop(e, cal, day.date)}
+        >
           {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
           {#each c.events as e, i (i)}
             <div
@@ -675,7 +863,12 @@
           {#if day.date === data!.today && nowMinutes > cal.range.start && nowMinutes < cal.range.end && !cal.gaps.some((g) => nowMinutes > g.start && nowMinutes < g.end)}
             <div class="now" style:top="{cal.y(nowMinutes)}px" aria-label="Now"></div>
           {/if}
-          {#if !c.lay.windows.length && !c.planning}
+          {#if preview && preview.date === day.date}
+            <div class="drop-at" style={place(cal, { start: preview.start, end: preview.start + preview.minutes }, 14)}>
+              <span class="mono small">{clockText(preview.start)}</span>
+            </div>
+          {/if}
+          {#if !calMode && !c.lay.windows.length && !c.planning}
             <span class="free-day muted small">No study windows</span>
           {/if}
         </div>
@@ -699,7 +892,7 @@
     role="group"
     draggable={item.status === 'todo'}
     ondragstart={(e) => dragStart(e, day, item)}
-    ondragend={() => (dragging = over = null)}
+    ondragend={dragEnd}
   >
     <input
       type="checkbox"
@@ -738,7 +931,7 @@
     href={dayHref(day.date)}
     draggable={item.status === 'todo' && day.date >= data!.today}
     ondragstart={(e) => dragStart(e, day, item)}
-    ondragend={() => (dragging = over = null)}
+    ondragend={dragEnd}
     title="{text.title} · {spanText(t)} · {item.minutes} min"
   >
     <span class="chip-text">{text.title}</span>
@@ -756,14 +949,29 @@
           {#each subjects.filter((s) => !item.subjects?.includes(s)) as s (s)}<option value={s}>{shortSubject(s)}</option>{/each}
         </select>
       {/if}
-      <button class="btn small" onclick={() => act(() => togglePin(day, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
-      <button class="btn small" onclick={() => snooze(day, item)} disabled={busy}>Tomorrow</button>
-      <button class="btn small" onclick={() => act(() => skipItem(day, item))}>Skip</button>
-      <label class="sr-only" for="move-{item.id}">Move to</label>
-      <select id="move-{item.id}" class="mini" onchange={(e) => onMove(day, item, e)}>
-        <option value="">Move to</option>
-        {#each moveTargets() as m (m.value)}<option value={m.value}>{m.label}</option>{/each}
-      </select>
+      {#if calMode}
+        <label class="mini-field">
+          <span class="small muted">Starts</span>
+          <input class="mini" type="time" step="900" value={item.start ?? ''} onchange={(e) => setStart(day, item, e)} />
+        </label>
+        <label class="sr-only" for="mins-{item.id}">Length</label>
+        <select id="mins-{item.id}" class="mini" onchange={(e) => onMinutes(day, item, e)}>
+          <option value="">{item.minutes} min</option>
+          {#each [15, 20, 30, 45, 60, 90, 120].filter((m) => m !== item.minutes) as m (m)}<option value={m}>{m} min</option>{/each}
+        </select>
+        <button class="btn small" onclick={() => snooze(day, item)} disabled={busy}>Tomorrow</button>
+        <button class="btn small" onclick={() => act(() => skipItem(day, item))}>Skip</button>
+        <button class="btn small" onclick={() => act(() => removeItem(day, item))}>Take off</button>
+      {:else}
+        <button class="btn small" onclick={() => act(() => togglePin(day, item))}>{item.pinned ? 'Unpin' : 'Pin'}</button>
+        <button class="btn small" onclick={() => snooze(day, item)} disabled={busy}>Tomorrow</button>
+        <button class="btn small" onclick={() => act(() => skipItem(day, item))}>Skip</button>
+        <label class="sr-only" for="move-{item.id}">Move to</label>
+        <select id="move-{item.id}" class="mini" onchange={(e) => onMove(day, item, e)}>
+          <option value="">Move to</option>
+          {#each moveTargets() as m (m.value)}<option value={m.value}>{m.label}</option>{/each}
+        </select>
+      {/if}
     </div>
   </details>
 {/snippet}
@@ -778,11 +986,15 @@
           <span class="dot" style:background={itemColour(item)}></span>
           <span class="grow">
             {text.title}
-            <span class="muted small">· {item.status === 'skipped' ? 'skipped' : 'extra time'} · {item.minutes} min</span>
+            <span class="muted small">· {item.status === 'skipped' ? 'skipped' : calMode ? 'no time set' : 'extra time'} · {item.minutes} min</span>
           </span>
           {#if item.status === 'skipped'}
             <button class="btn small" onclick={() => act(() => reopenItem(day, item, data!.tasks))}>Undo skip</button>
           {:else if !done}
+            {#if calMode}
+              <input class="mini" type="time" step="900" aria-label="Put it at" onchange={(e) => setStart(day, item, e)} />
+              <button class="btn small" onclick={() => act(() => removeItem(day, item))}>Take off</button>
+            {/if}
             <button class="btn small" onclick={() => act(() => completeItem(day, item, data!.tasks))}>Done</button>
             <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
           {/if}
@@ -1400,5 +1612,71 @@
     .step {
       margin-left: 0;
     }
+  }
+
+  /* The to do tray (calendar mode). */
+  .tray {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tray-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .tray-hint {
+    margin: -4px 0 2px;
+  }
+  .tray-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--c);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: grab;
+  }
+  .tray-item.urgent {
+    border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+    border-left-color: var(--c);
+  }
+  .tray-item:active {
+    cursor: grabbing;
+  }
+  .tray-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tray-title {
+    font-weight: 600;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .drop-at {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    z-index: 3;
+    border: 1.5px dashed var(--accent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    pointer-events: none;
+    padding: 1px 6px;
+    color: var(--accent);
+  }
+  .mini-field {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
   }
 </style>

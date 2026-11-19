@@ -339,6 +339,12 @@ export interface Availability {
   autoFill?: boolean;
   /** The weekly planning session (weekly review + look at the week). Missing means Sunday 16:00 for 20 min, null means off. */
   planning?: { day: number; start: string; minutes: number } | null;
+  /**
+   * 'calendar' (the default): the planner is a plain calendar and you place
+   * study on it yourself. 'windows': the old way, where the app fills your
+   * weekly study windows.
+   */
+  planMode?: 'calendar' | 'windows';
 }
 
 export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';
@@ -348,6 +354,8 @@ export interface PlanItem {
   id: string;
   kind: PlanItemKind;
   windowId: string;
+  /** HH:MM: placed at this time on the calendar (calendar mode). */
+  start?: string;
   minutes: number;
   taskId?: string;
   /** Problem subjects (problems), or the subject being prepped. */
