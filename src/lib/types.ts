@@ -96,6 +96,8 @@ export interface Settings {
   dayStartHour: number;
   /** Length of the evening problem block, in minutes. */
   problemMinutes: number;
+  /** Textbook question levels to practise. Missing means all of them. */
+  levels?: ProblemLevel[];
   lastBackupAt?: number;
 }
 
@@ -139,7 +141,10 @@ export interface Skill {
   updated: number;
 }
 
-export type ProblemSource = 'smartered' | 'atarnotes' | 'snip' | 'typed';
+export type ProblemSource = 'smartered' | 'atarnotes' | 'snip' | 'typed' | 'textbook';
+
+/** How hard the textbook says a question is: Maths In Focus colours its question numbers this way. */
+export type ProblemLevel = 'foundation' | 'mastery' | 'complex';
 
 export interface Problem {
   id: string;
@@ -161,6 +166,8 @@ export interface Problem {
   /** A typed question and its answer or marking guideline (Markdown with maths), used instead of pictures. */
   questionText?: string;
   solutionText?: string;
+  /** Textbook level (Foundation, Mastery, Complex), when the book gives one. */
+  level?: ProblemLevel;
   /** Position in the worksheet, to keep the original order. */
   order: number;
   created: number;

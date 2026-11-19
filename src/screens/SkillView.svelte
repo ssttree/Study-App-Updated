@@ -1,5 +1,8 @@
 <script lang="ts">
   import ProblemView from '../components/ProblemView.svelte';
+  import LevelBadge from '../components/LevelBadge.svelte';
+  import LevelFilter from '../components/LevelFilter.svelte';
+  import { levelChosen } from '../lib/practice/mix';
   import { deleteProblem, deleteSkill, moveProblems, saveProblem, saveSkill } from '../lib/db';
   import { loadPractice, relativeDay, type PracticeCollection } from '../lib/practice/load';
   import { newSkill } from '../lib/practice/mix';
@@ -29,7 +32,10 @@
   const skill = $derived(data?.skills.find((s) => s.id === id));
   const parent = $derived(skill?.parentId ? data?.skills.find((s) => s.id === skill.parentId) : undefined);
   const children = $derived(data?.skills.filter((s) => s.parentId === id) ?? []);
-  const problems = $derived(data?.problems.filter((p) => p.skillId === id) ?? []);
+  const allProblems = $derived(data?.problems.filter((p) => p.skillId === id) ?? []);
+  /** Only the textbook levels you practise are listed (and come up when you practise this skill). */
+  const problems = $derived(allProblems.filter((p) => levelChosen(p, data?.settings.levels)));
+  const hidden = $derived(allProblems.length - problems.length);
   // Same subject first, so the skill you want is near the top of the list.
   const targets = $derived(
     (data?.skills.filter((s) => s.id !== id) ?? []).sort(
@@ -97,7 +103,7 @@
     if (!skill || !parent) return;
     if (!confirm(`Move these questions back into "${parent.name}" and remove this sub-skill?`)) return;
     await moveProblems(
-      problems.map((p) => p.id),
+      allProblems.map((p) => p.id),
       parent.id,
     );
     await deleteSkill(skill.id);
@@ -107,7 +113,7 @@
   async function removeSkill() {
     if (!skill) return;
     const extra = children.length ? ` and its ${plural(children.length, 'sub-skill')}` : '';
-    if (!confirm(`Delete "${skill.name}"${extra}, with ${plural(problems.length, 'question')} and your attempts? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${skill.name}"${extra}, with ${plural(allProblems.length, 'question')} and your attempts? This cannot be undone.`)) return;
     await deleteSkill(skill.id);
     go('practice', 'skills');
   }
@@ -135,7 +141,11 @@
         {#if parent}/ <a href={href('practice', 'skill', parent.id)}>{parent.name}</a>{/if}
       </div>
       <h1>{skill.name}</h1>
-      <p class="muted">{skill.topic}{skill.topic ? ' · ' : ''}{plural(problems.length, 'question')} · {plural(attempts.length, 'attempt')}. {status(skill)}</p>
+      <p class="muted">{skill.topic}{skill.topic ? ' · ' : ''}{plural(allProblems.length, 'question')} · {plural(attempts.length, 'attempt')}. {status(skill)}</p>
+      {#if allProblems.some((p) => p.level)}
+        <LevelFilter problems={allProblems} levels={data.settings.levels} onchange={load} />
+        {#if hidden}<p class="muted small">{plural(hidden, 'question')} hidden by the level filter. They stay saved and come back when you switch the level on.</p>{/if}
+      {/if}
       <div class="actions">
         {#if problems.length}
           <a class="btn primary" href={href('practice', 'run', 'skill', skill.id)}>Practise this skill now</a>
@@ -210,8 +220,9 @@
                 <input type="checkbox" value={p.id} bind:group={selected} />
                 <span class="sr-only">Tick {p.label}</span>
               </label>
-              <span class="mono small">{p.label || 'Question'}</span>
+              <span class="mono small nowrap">{p.label || 'Question'}</span>
               <span class="mono muted small grow">
+                {#if p.level}<LevelBadge level={p.level} />{/if}
                 {p.mc ? 'MC' : ''}{p.mc && p.answerLetter ? ' ' + p.answerLetter : ''}
               </span>
               <label class="marks mono small">
@@ -367,5 +378,8 @@
   }
   .small {
     font-size: 13px;
+  }
+  .nowrap {
+    white-space: nowrap;
   }
 </style>

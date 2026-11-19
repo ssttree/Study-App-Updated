@@ -55,7 +55,8 @@ export class OpenPdf {
       for (const it of content.items) {
         if (!('str' in it) || !it.str.trim()) continue;
         const [, b, c, , e, f] = it.transform as number[];
-        items.push({ str: it.str, x: e, y: f, w: it.width, h: it.height, rotated: b !== 0 || c !== 0 });
+        const sans = content.styles[it.fontName]?.fontFamily === 'sans-serif';
+        items.push({ str: it.str, x: e, y: f, w: it.width, h: it.height, rotated: b !== 0 || c !== 0, sans });
       }
       pages.push({ width: viewport.width, height: viewport.height, items });
     }
@@ -70,6 +71,16 @@ export class OpenPdf {
       this.rendered.set(index, p);
     }
     return p;
+  }
+
+  /** Lets go of a drawn page, so a long chapter doesn't keep every page in memory. */
+  release(index: number): void {
+    this.rendered.delete(index);
+  }
+
+  /** Keeps only the pages from `from` on; earlier ones are let go. */
+  releaseBefore(from: number): void {
+    for (const k of this.rendered.keys()) if (k < from) this.rendered.delete(k);
   }
 
   private async draw(index: number): Promise<RenderedPage> {
@@ -88,15 +99,15 @@ export class OpenPdf {
   }
 
   /** Crops the given PDF-unit regions, trims them and stacks them into one picture. */
-  async crop(regions: Region[], trim = true): Promise<Picture | null> {
+  async crop(regions: Region[], trim = true, type = 'image/png', slivers?: { thin: number; gap: number }): Promise<Picture | null> {
     const parts: { canvas: HTMLCanvasElement; box: Box }[] = [];
     for (const r of regions) {
       const page = await this.page(r.page);
       const box: Box = { x0: r.x0 * SCALE, y0: r.top * SCALE, x1: r.x1 * SCALE, y1: r.bottom * SCALE };
-      const trimmed = trim ? trimBox(page.pixels, box, page.bars) : box;
+      const trimmed = trim ? trimBox(page.pixels, box, page.bars, 12, slivers) : box;
       if (trimmed && trimmed.x1 - trimmed.x0 > 2 && trimmed.y1 - trimmed.y0 > 2) parts.push({ canvas: page.canvas, box: trimmed });
     }
-    return stack(parts);
+    return stack(parts, type);
   }
 
   /** A page as a picture, for drawing boxes on by hand. */
@@ -113,7 +124,7 @@ export class OpenPdf {
 
 const GAP = 16;
 
-function stack(parts: { canvas: HTMLCanvasElement; box: Box }[]): Picture | null {
+function stack(parts: { canvas: HTMLCanvasElement; box: Box }[], type = 'image/png'): Picture | null {
   if (!parts.length) return null;
   const width = Math.max(...parts.map((p) => p.box.x1 - p.box.x0));
   const height = parts.reduce((sum, p) => sum + p.box.y1 - p.box.y0, 0) + GAP * (parts.length - 1);
@@ -130,5 +141,5 @@ function stack(parts: { canvas: HTMLCanvasElement; box: Box }[]): Picture | null
     ctx.drawImage(canvas, box.x0, box.y0, w, h, 0, y, w, h);
     y += h + GAP;
   }
-  return { data: out.toDataURL('image/png'), width, height };
+  return { data: out.toDataURL(type, 0.85), width, height };
 }

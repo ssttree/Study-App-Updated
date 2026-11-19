@@ -5,7 +5,7 @@
 import { fsrs, type FSRS, type Grade } from 'ts-fsrs';
 import { newId } from '../db';
 import { emptyState, fromFsrs, toFsrs, type RatingValue } from '../scheduler';
-import type { Attempt, Problem, Settings, Skill, TestPlan } from '../types';
+import type { Attempt, Problem, ProblemLevel, Settings, Skill, TestPlan } from '../types';
 import { rampOf } from '../planner/assessments';
 import { plansAnswers } from './subjects';
 
@@ -27,6 +27,20 @@ export interface PracticeData {
   plans: TestPlan[];
   /** Focus skills picked in the weekly review: they get extra weight in the daily mix. */
   focus?: string[];
+}
+
+export const LEVELS: ProblemLevel[] = ['foundation', 'mastery', 'complex'];
+export const LEVEL_NAMES: Record<ProblemLevel, string> = { foundation: 'Foundation', mastery: 'Mastery', complex: 'Complex' };
+
+/** True if a question is at one of the chosen textbook levels. Questions with no level always count. */
+export function levelChosen(problem: Pick<Problem, 'level'>, levels: ProblemLevel[] | undefined): boolean {
+  return !problem.level || !levels || levels.includes(problem.level);
+}
+
+/** The data with only questions at the chosen textbook levels, so every kind of set respects the filter. */
+export function withLevels<T extends PracticeData>(data: T, levels: ProblemLevel[] | undefined): T {
+  if (!levels || LEVELS.every((l) => levels.includes(l))) return data;
+  return { ...data, problems: data.problems.filter((p) => levelChosen(p, levels)) };
 }
 
 export function newSkill(fields: Pick<Skill, 'subject' | 'name'> & Partial<Skill>, now = Date.now()): Skill {

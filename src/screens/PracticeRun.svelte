@@ -12,6 +12,8 @@
     makeAttempt,
     makeSkillScheduler,
     rateSkill,
+    withLevels,
+    LEVEL_NAMES,
     workMinutes,
     type MixItem,
   } from '../lib/practice/mix';
@@ -53,7 +55,9 @@
   });
 
   async function start() {
-    const d = await loadPractice();
+    // Only the textbook levels you chose (Foundation, Mastery, Complex) come up.
+    const all = await loadPractice();
+    const d = withLevels(all, all.settings.levels);
     data = d;
     scheduler = makeSkillScheduler(d.settings);
     // The planner can ask for a set length, as a last part like "45m".
@@ -190,7 +194,7 @@
     { value: 'misread', label: 'Misread the question' },
     { value: 'time', label: 'Ran out of time' },
   ];
-  const sourceName = { smartered: 'SmarterEd', atarnotes: 'ATAR Notes', snip: 'Snipped', typed: 'Typed' } as const;
+  const sourceName = { smartered: 'SmarterEd', atarnotes: 'ATAR Notes', snip: 'Snipped', typed: 'Typed', textbook: 'Textbook' } as const;
 
   const summary = $derived.by(() => {
     const n = results.length;
@@ -262,7 +266,9 @@
         <div class="q-head">
           <h1>Question {index + 1} of {items.length}</h1>
           <span class="mono muted small">
-            {sourceName[current.problem.source]}{current.problem.label ? ` · ${current.problem.label}` : ''} · {plural(current.problem.marks, 'mark')}
+            <!-- A textbook label ("Ex 1.04 Q12") names the section, so it waits for the reveal like the skill name. -->
+            {sourceName[current.problem.source]}{current.problem.label && (revealed || current.problem.source !== 'textbook') ? ` · ${current.problem.label}` : ''}
+            · {current.problem.level ? LEVEL_NAMES[current.problem.level] : plural(current.problem.marks, 'mark')}
           </span>
         </div>
 

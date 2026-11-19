@@ -2,7 +2,7 @@
 // and skips questions that are already in the app.
 
 import { addPractice, listSkills, newId, problemKeys } from '../db';
-import type { Problem, ProblemSource, Skill, StoredImage } from '../types';
+import type { Problem, ProblemLevel, ProblemSource, Skill, StoredImage } from '../types';
 import { newSkill } from './mix';
 import { STARTER_SKILLS } from './subjects';
 
@@ -21,6 +21,9 @@ export interface DraftProblem {
   label: string;
   marks: number;
   mc: boolean;
+  /** Correct multiple choice letter, when the answers give it. */
+  answerLetter?: string;
+  level?: ProblemLevel;
   /** Identifies the question so importing the same sheet twice adds nothing. */
   key: string;
 }
@@ -109,6 +112,8 @@ export async function saveProblems(
       key,
       marks: d.marks,
       mc: d.mc,
+      answerLetter: d.answerLetter,
+      level: d.level,
       questionImage,
       solutionImage,
       questionText: d.questionText?.trim() || undefined,

@@ -53,7 +53,7 @@ export function findBars(p: Pixels, minRun = Math.round(p.height * 0.15)): boole
 }
 
 /** Shrinks a box to the ink inside it. Returns null if there is nothing there. */
-export function trimBox(p: Pixels, box: Box, bars: boolean[], pad = 12): Box | null {
+export function trimBox(p: Pixels, box: Box, bars: boolean[], pad = 12, slivers?: { thin: number; gap: number }): Box | null {
   let { x0, y0, x1, y1 } = clampBox(p, box);
   // Stop at the first grey bar past the left part of the box.
   for (let x = Math.round(x0 + (x1 - x0) * 0.3); x < x1; x++) {
@@ -104,6 +104,13 @@ export function trimBox(p: Pixels, box: Box, bars: boolean[], pad = 12): Box | n
   };
   while (bands.length && isLine(bands[bands.length - 1])) bands.pop();
   while (bands.length && isLine(bands[0])) bands.shift();
+  // Textbook crops: a thin strip cut off the next question's badge or the bottom of the
+  // line above (separated from the question by a clear gap) is not part of this question.
+  if (slivers) {
+    const thin = (b: { from: number; to: number }) => b.to - b.from < slivers.thin;
+    while (bands.length > 1 && thin(bands[0]) && bands[1].from - bands[0].to > slivers.gap) bands.shift();
+    while (bands.length > 1 && thin(bands[bands.length - 1]) && bands[bands.length - 1].from - bands[bands.length - 2].to > slivers.gap) bands.pop();
+  }
   if (!bands.length) return null;
   const top = y0 + bands[0].from;
   const bottom = y0 + bands[bands.length - 1].to + 1;
@@ -119,7 +126,11 @@ export function trimBox(p: Pixels, box: Box, bars: boolean[], pad = 12): Box | n
   }
   // Tiny specks (a stray dot) are not worth a picture.
   if (right - left < 6 && bottom - top < 6) return null;
-  return clampBox(p, { x0: left - pad, y0: top - pad, x1: right + pad, y1: bottom + pad });
+  const padded = clampBox(p, { x0: left - pad, y0: top - pad, x1: right + pad, y1: bottom + pad });
+  // Textbook crops sit tight against the next question's badge and the exercise frame,
+  // so the padding must not reach outside the box and pick those up.
+  if (slivers) return { x0: Math.max(padded.x0, x0), y0: Math.max(padded.y0, y0), x1: Math.min(padded.x1, x1), y1: Math.min(padded.y1, y1) };
+  return padded;
 }
 
 function clampBox(p: Pixels, b: Box): Box {
