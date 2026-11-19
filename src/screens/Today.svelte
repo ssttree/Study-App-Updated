@@ -11,7 +11,7 @@
   import { loadPlanner, type PlannerData } from '../lib/planner/load';
   import { EXTRA_WINDOW } from '../lib/planner/build';
   import { itemColour, itemLink, itemText } from '../lib/planner/labels';
-  import { addDays, minutesText } from '../lib/planner/dates';
+  import { addDays, clockMinutes, clockText, minutesText } from '../lib/planner/dates';
   import { forecast, loadProgress, practiseHref, subjectSummaries, upcoming, weakList, type ProgressData } from '../lib/progress/load';
   import { GRADE_COLOUR, gradeOf, pct } from '../lib/progress/recall';
   import { hoursText, soFar } from '../lib/progress/activity';
@@ -61,7 +61,7 @@
         item: it,
         text: itemText(it, tasks, assessments, planner!.today),
         link: itemLink(it, tasks),
-        where: it.windowId === EXTRA_WINDOW ? 'Extra' : (windows.get(it.windowId) ?? ''),
+        where: it.start ? clockText(clockMinutes(it.start)) : it.windowId === EXTRA_WINDOW ? 'Extra' : (windows.get(it.windowId) ?? ''),
         done: it.status === 'done' || (it.kind === 'flashcards' && planner!.cardsLeft === 0 && planner!.logsToday.length > 0),
       }));
     const due = planner.tasks.filter((t) => t.status === 'open' && t.required && t.due <= day.date);

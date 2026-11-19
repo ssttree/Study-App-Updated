@@ -158,6 +158,19 @@ export function blockEvents(
 ): PushPart {
   const events: PushEvent[] = [];
   for (const day of days) {
+    // Things you placed at a time yourself: one event each.
+    for (const it of day.plan.items) {
+      if (!it.start || it.status === 'skipped') continue;
+      const [y, m, d] = day.date.split('-').map(Number);
+      const start = new Date(y, m - 1, d, 0, clockMinutes(it.start));
+      events.push({
+        key: `block:${day.date}:${it.id}`,
+        title: `Study: ${title(it)}`,
+        description: `${title(it)} (${it.minutes} min)`,
+        start: start.toISOString(),
+        end: new Date(start.getTime() + it.minutes * 60_000).toISOString(),
+      });
+    }
     for (const w of day.windows) {
       const items = day.plan.items.filter((it) => it.windowId === w.id && it.status !== 'skipped');
       if (!items.length) continue;
