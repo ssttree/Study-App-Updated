@@ -10,6 +10,8 @@ import {
   looksLikeTextbook,
   practiceSetNumber,
   practiceTitle,
+  findWorked,
+  workedStart,
   type Frame,
 } from '../src/lib/practice/textbook';
 import { levelChosen, withLevels } from '../src/lib/practice/mix';
@@ -167,5 +169,36 @@ describe('level filter', () => {
     const data = { skills: [], attempts: [], plans: [], problems: [problem('a', 'foundation'), problem('b', 'mastery'), problem('c')] };
     expect(withLevels(data, ['mastery']).problems.map((p) => p.id)).toEqual(['b', 'c']);
     expect(withLevels(data, undefined)).toBe(data);
+  });
+});
+
+describe('worked solutions', () => {
+  // Layout only (headings, "Question N" and the footer) from Maths In Focus
+  // Extension 2 chapter 1 with its worked solutions PDF added after the answers.
+  it('finds every worked solution under its exercise', () => {
+    const { pages } = load('worked-ext2-ch01');
+    expect(workedStart(pages)).toBe(41);
+    const worked = findWorked(pages, 1);
+    const count = (key: string) => worked.filter((w) => w.section === key).map((w) => w.number);
+    expect(count('1.01')).toEqual([...Array(22).keys()].map((i) => i + 1));
+    expect(count('1.05')).toHaveLength(14);
+    expect(count('1.07')).toEqual([1, 2, 3, 4]);
+    expect(count('test1')).toHaveLength(32);
+  });
+
+  it('runs a solution over the page break and stops at the next question', () => {
+    const { pages } = load('worked-ext2-ch01');
+    const worked = findWorked(pages, 1);
+    const q22 = worked.find((w) => w.section === '1.01' && w.number === 22)!;
+    expect(q22.regions.map((r) => r.page)).toEqual([53, 54]);
+    // Exercise 1.02 starts page 54, so question 22 ends above it.
+    expect(q22.regions[1].bottom).toBeLessThan(80);
+    for (const w of worked) for (const r of w.regions) expect(r.bottom).toBeGreaterThan(r.top);
+  });
+
+  it('leaves a chapter without worked solutions alone', () => {
+    const { pages } = load('ch01');
+    expect(workedStart(pages)).toBe(pages.length);
+    expect(findWorked(pages, 1)).toEqual([]);
   });
 });
