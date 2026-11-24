@@ -33,6 +33,31 @@ export type SkillChoice =
   | { kind: 'existing'; id: string }
   | { kind: 'new'; subject: string; name: string; topic?: string; code?: string; dotPoint?: string; parentId?: string };
 
+/** In a question's list of skills: the main skill picked for the sheet or test. */
+export const MAIN_SKILL = '';
+/** In a question's list of skills: a new skill this import makes, "new:Name". */
+export const NEW_SKILL = 'new:';
+
+/**
+ * Splits questions by the skills they go into. A question in several skills
+ * is in several groups (each skill gets its own copy). No list means the main skill.
+ */
+export function groupBySkill<T extends { skills?: string[] }>(items: T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const it of items) {
+    const targets = it.skills?.length ? [...new Set(it.skills)] : [MAIN_SKILL];
+    for (const t of targets) out.set(t, [...(out.get(t) ?? []), it]);
+  }
+  return out;
+}
+
+/** What to save a group into: the main skill, a new one by name, or an existing one. */
+export function choiceFor(target: string, main: SkillChoice, subject: string): SkillChoice {
+  if (target === MAIN_SKILL) return main;
+  if (target.startsWith(NEW_SKILL)) return { kind: 'new', subject, name: target.slice(NEW_SKILL.length) };
+  return { kind: 'existing', id: target };
+}
+
 export interface SaveResult {
   skill: Skill;
   added: number;

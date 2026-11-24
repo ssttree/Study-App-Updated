@@ -30,8 +30,8 @@ export interface DraftPair extends DraftProblem {
   /** Why the app wants you to look at this one. Empty means it looked fine. */
   problems: string[];
   include: boolean;
-  /** Snipped from a past paper: a different skill for this question. Empty means the sheet's skill. */
-  skill?: string;
+  /** The skills this question goes into (see groupBySkill). Missing means the sheet's skill. */
+  skills?: string[];
   /** Textbook level, from the colour of the question number. */
   level?: ProblemLevel;
   answerLetter?: string;

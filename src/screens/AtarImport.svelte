@@ -4,7 +4,8 @@
   import { imageToDataUrl } from '../lib/images';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import { pairByOrder, saveProblems, type Picture, type SaveResult } from '../lib/practice/save';
+  import { choiceFor, groupBySkill, pairByOrder, saveProblems, type Picture, type SaveResult } from '../lib/practice/save';
+  import SkillTags from '../components/SkillTags.svelte';
   import { SUBJECTS, taskSkillIds, type Skill, type Task } from '../lib/types';
   import { untrack } from 'svelte';
 
@@ -15,6 +16,8 @@
   interface QuestionShot extends Shot {
     marks: number;
     label: string;
+    /** Skills this question goes into; empty means the test's skill. */
+    skills: string[];
   }
 
   let skills = $state.raw<Skill[]>([]);
@@ -27,7 +30,9 @@
   let solutions = $state<Shot[]>([]);
   let error = $state('');
   let saving = $state(false);
-  let result = $state.raw<SaveResult | null>(null);
+  let results = $state.raw<SaveResult[]>([]);
+  /** Skills set for every question at once. */
+  let allSkills = $state<string[]>([]);
   let nextId = 0;
 
   listSkills().then((s) => (skills = s));
@@ -44,6 +49,7 @@
 
   const subjectSkills = $derived(skills.filter((k) => k.subject === subject));
   const pairs = $derived(pairByOrder(questions, solutions));
+  const mainName = $derived(skill === 'new' ? `${name.trim() || 'New skill'} (new)` : (subjectSkills.find((k) => k.id === skill)?.name ?? 'Test skill'));
 
   async function toPicture(file: File): Promise<Picture> {
     const data = await imageToDataUrl(file);
@@ -62,7 +68,7 @@
     }
     for (const file of images) {
       const picture = await toPicture(file);
-      if (phase === 'questions') questions.push({ id: nextId++, picture, marks: 2, label: '' });
+      if (phase === 'questions') questions.push({ id: nextId++, picture, marks: 2, label: '', skills: [...allSkills] });
       else solutions.push({ id: nextId++, picture });
     }
   }
@@ -103,6 +109,7 @@
     try {
       const from = testName.trim() || 'ATAR Notes topic test';
       const drafts = pairs.map((p, i) => ({
+        skills: p.question.skills,
         question: { ...p.question.picture },
         solution: p.solution ? { ...p.solution.picture } : null,
         label: p.question.label.trim() || `${from} Q${i + 1}`,
@@ -111,16 +118,19 @@
         key: `atar:${from}:${i + 1}:${p.question.picture.data.length}`,
       }));
       const choice = skill === 'new' ? ({ kind: 'new', subject, name } as const) : ({ kind: 'existing', id: skill } as const);
-      result = await saveProblems(choice, drafts, 'atarnotes', from);
-      // Homework: link it to the test's skill. An optional one just joins the skill pool.
+      const saved: SaveResult[] = [];
+      for (const [target, group] of groupBySkill(drafts)) saved.push(await saveProblems(choiceFor(target, choice, subject), group, 'atarnotes', from));
+      results = saved;
+      // Homework: link it to the test's skills. An optional one just joins the skill pool.
       if (task) {
-        const linked: Task = { ...task, skillIds: [...new Set([...taskSkillIds(task), result.skill.id])], skillId: undefined };
+        const linked: Task = { ...task, skillIds: [...new Set([...taskSkillIds(task), ...saved.map((r) => r.skill.id)])], skillId: undefined };
         if (!task.required) Object.assign(linked, { status: 'done', finished: Date.now() });
         await saveTask(linked);
         task = linked;
       }
       questions = [];
       solutions = [];
+      allSkills = [];
       phase = 'questions';
       skills = await listSkills();
     } catch (e) {
@@ -137,15 +147,16 @@
     <h1>Add an ATAR Notes topic test</h1>
     {#if task}<p class="accent">For the homework "{task.title}"</p>{/if}
     <p class="muted">
-      A topic test covers one subtopic, so pick its skill once and every question you paste joins it. Screenshot each
+      Pick the test's skill once and every question you paste joins it. If it covers more than one skill, put each question into as many skills as it fits. Screenshot each
       question with <kbd>Windows</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> and press <kbd>Ctrl</kbd> + <kbd>V</kbd> here.
       Then scroll to the worked solutions and paste them in the same order. The app pairs them up by order.
     </p>
   </section>
 
-  {#if result}
+  {#if results.length}
     <div class="notice">
-      Saved {plural(result.added, 'question')} to <a href={href('practice', 'skill', result.skill.id)}>{result.skill.name}</a>.
+      Saved
+      {#each results as r, i (r.skill.id)}{i ? (i === results.length - 1 ? ' and ' : ', ') : ''}{plural(r.added, 'question')} to <a href={href('practice', 'skill', r.skill.id)}>{r.skill.name}</a>{/each}.
       {#if task}
         Linked to the homework "{task.title}".
         {#if task.required}<a href={href('practice', 'run', 'task', task.id)}>Do these questions now</a> or
@@ -160,7 +171,14 @@
   <section class="panel fields">
     <label class="field">
       Subject
-      <select bind:value={subject} onchange={() => (skill = 'new')}>
+      <select
+        bind:value={subject}
+        onchange={() => {
+          skill = 'new';
+          allSkills = [];
+          for (const q of questions) q.skills = [];
+        }}
+      >
         {#each SUBJECTS as s (s)}<option value={s}>{s}</option>{/each}
       </select>
     </label>
@@ -175,6 +193,19 @@
       <label class="field">Skill name<input type="text" bind:value={name} placeholder="e.g. Static and dynamic equilibrium" /></label>
     {/if}
     <label class="field">Test name<input type="text" bind:value={testName} placeholder="e.g. Equilibrium Test 1" /></label>
+    <div class="all-skills">
+      <SkillTags
+        skills={subjectSkills.filter((k) => k.id !== skill)}
+        value={allSkills}
+        onchange={(v) => {
+          allSkills = v;
+          for (const q of questions) q.skills = [...v];
+        }}
+        main={mainName}
+        label="Every question into"
+      />
+      <span class="muted small">A test that covers more than one skill? Change each question's skills under it.</span>
+    </div>
   </section>
 
   <div class="phases" role="tablist" aria-label="What you are pasting">
@@ -205,6 +236,13 @@
               <label class="mono small marks"><input type="number" min="1" max="20" bind:value={questions[i].marks} /> marks</label>
               <input class="badge" type="text" bind:value={questions[i].label} placeholder="Source, e.g. NESA 2019 Sample Exam Q2" />
             </div>
+            <SkillTags
+              skills={subjectSkills.filter((k) => k.id !== skill)}
+              value={questions[i].skills}
+              onchange={(v) => (questions[i].skills = v)}
+              main={mainName}
+              label="Q{i + 1} into"
+            />
             <ProblemImage src={p.question.picture.data} alt="Question {i + 1}" small />
             <div class="side-actions">
               <button class="btn small" onclick={() => move(questions, i, -1)} disabled={i === 0}>Up</button>
@@ -363,5 +401,12 @@
     padding: 14px 0;
     background: var(--bg);
     border-top: 1px solid var(--line);
+  }
+  .all-skills {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
   }
 </style>
