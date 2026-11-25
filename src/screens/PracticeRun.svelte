@@ -1,5 +1,7 @@
 <script lang="ts">
   import ProblemView from '../components/ProblemView.svelte';
+  import ProblemEditor from '../components/ProblemEditor.svelte';
+  import { copiesOf } from '../lib/practice/edit';
   import { getTask, recordAttempt } from '../lib/db';
   import { plural } from '../lib/load';
   import { loadPractice, shortSubject, type PracticeCollection } from '../lib/practice/load';
@@ -20,7 +22,7 @@
   import { practiceStyle } from '../lib/practice/subjects';
   import { formatInterval, previewIntervals, RATINGS, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
-  import { taskSkillIds, type MethodChoice, type MistakeTag, type Skill } from '../lib/types';
+  import { taskSkillIds, type MethodChoice, type MistakeTag, type Problem, type Skill } from '../lib/types';
   import type { FSRS } from 'ts-fsrs';
 
   let { parts }: { parts: string[] } = $props();
@@ -48,6 +50,9 @@
   let questionAt = $state(Date.now());
   let now = $state(Date.now());
   let loaded = $state(false);
+  /** Every saved question and skill, including levels left out of this block, to find copies of a question you fix. */
+  let everything = $state.raw<PracticeCollection | null>(null);
+  let editing = $state(false);
 
   $effect(() => {
     const t = setInterval(() => (now = Date.now()), 1000);
@@ -57,6 +62,7 @@
   async function start() {
     // Only the textbook levels you chose (Foundation, Mastery, Complex) come up.
     const all = await loadPractice();
+    everything = all;
     const d = withLevels(all, all.settings.levels);
     data = d;
     scheduler = makeSkillScheduler(d.settings);
@@ -174,7 +180,15 @@
     questionAt = Date.now();
   }
 
+  /** A fixed question shows straight away, wherever it is in this block. */
+  function edited(_saved: Problem, all: Problem[]) {
+    const byId = new Map(all.map((p) => [p.id, p]));
+    items = items.map((it) => (byId.has(it.problem.id) ? { ...it, problem: byId.get(it.problem.id)! } : it));
+    if (everything) everything = { ...everything, problems: everything.problems.map((p) => byId.get(p.id) ?? p) };
+  }
+
   function onKey(e: KeyboardEvent) {
+    if (editing) return;
     const t = e.target as HTMLElement | null;
     if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
     if (!current) return;
@@ -270,6 +284,7 @@
             {sourceName[current.problem.source]}{current.problem.label && (revealed || current.problem.source !== 'textbook') ? ` · ${current.problem.label}` : ''}
             · {current.problem.level ? LEVEL_NAMES[current.problem.level] : plural(current.problem.marks, 'mark')}
           </span>
+          <button class="btn small edit" onclick={() => (editing = true)} title="Fix this question, then carry on from here">Edit question</button>
         </div>
 
         <ProblemView image={current.problem.questionImage} text={current.problem.questionText} alt="Question {index + 1}" />
@@ -363,6 +378,17 @@
     </div>
   {/if}
 </div>
+
+{#if editing && current}
+  <ProblemEditor
+    problem={current.problem}
+    copies={everything ? copiesOf(current.problem, everything.problems) : []}
+    skillName={(id) => everything?.skills.find((s) => s.id === id)?.name ?? 'another skill'}
+    answerName={style.answerName}
+    onsaved={edited}
+    onclose={() => (editing = false)}
+  />
+{/if}
 
 <style>
   .run {
@@ -465,9 +491,11 @@
   .q-head {
     display: flex;
     flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 8px;
-    align-items: baseline;
+    gap: 8px 12px;
+    align-items: center;
+  }
+  .q-head h1 {
+    margin-right: auto;
   }
   h1 {
     font-size: 28px;

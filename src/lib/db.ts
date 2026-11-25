@@ -322,6 +322,18 @@ export async function saveProblem(problem: Problem): Promise<void> {
   await (await db()).put('problems', problem);
 }
 
+/** Saves fixed questions with their new pictures, and drops the pictures they no longer use, all in one go. */
+export async function updateProblems(changes: { problem: Problem; add: StoredImage[]; remove: string[] }[]): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['problems', 'images'], 'readwrite');
+  for (const c of changes) {
+    for (const image of c.add) await tx.objectStore('images').put(image);
+    await tx.objectStore('problems').put(c.problem);
+    for (const id of c.remove) await tx.objectStore('images').delete(id);
+  }
+  await tx.done;
+}
+
 /** Moves questions to another skill (used to split out a sub-skill). Their attempts move too. */
 export async function moveProblems(problemIds: string[], skillId: string): Promise<void> {
   const database = await db();
