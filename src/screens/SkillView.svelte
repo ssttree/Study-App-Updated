@@ -1,5 +1,8 @@
 <script lang="ts">
   import ProblemView from '../components/ProblemView.svelte';
+  import ProblemEditor from '../components/ProblemEditor.svelte';
+  import { copiesOf } from '../lib/practice/edit';
+  import { practiceStyle } from '../lib/practice/subjects';
   import LevelBadge from '../components/LevelBadge.svelte';
   import LevelFilter from '../components/LevelFilter.svelte';
   import { levelChosen } from '../lib/practice/mix';
@@ -20,6 +23,8 @@
   let moveTo = $state('');
   let open = $state<string | null>(null);
   let saved = $state(false);
+  /** The question open in the editor. */
+  let editing = $state.raw<Problem | null>(null);
 
   async function load() {
     data = await loadPractice();
@@ -230,7 +235,21 @@
                 marks
               </label>
             </div>
-            <ProblemView image={p.questionImage} text={p.questionText} alt="Question {p.label}" small />
+            <div
+              class="open"
+              role="button"
+              tabindex="0"
+              title="Open to edit"
+              onclick={() => (editing = p)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  editing = p;
+                }
+              }}
+            >
+              <ProblemView image={p.questionImage} text={p.questionText} alt="Question {p.label}" small />
+            </div>
             <div class="q-actions">
               {#if p.solutionImage || p.solutionText}
                 <button class="btn small" onclick={() => (open = open === p.id ? null : p.id)}>
@@ -239,7 +258,10 @@
               {:else}
                 <span class="muted small">No answer saved</span>
               {/if}
-              <button class="btn small danger" onclick={() => removeProblem(p)}>Delete</button>
+              <span class="q-buttons">
+                <button class="btn small" onclick={() => (editing = p)}>Edit</button>
+                <button class="btn small danger" onclick={() => removeProblem(p)}>Delete</button>
+              </span>
             </div>
             {#if open === p.id && (p.solutionImage || p.solutionText)}
               <ProblemView image={p.solutionImage} text={p.solutionText} alt="Solution {p.label}" small />
@@ -257,6 +279,17 @@
     </section>
   {/if}
 </main>
+
+{#if editing && data}
+  <ProblemEditor
+    problem={editing}
+    copies={copiesOf(editing, data.problems)}
+    skillName={(sid) => data?.skills.find((s) => s.id === sid)?.name ?? 'another skill'}
+    answerName={practiceStyle(skill?.subject ?? '').answerName}
+    onsaved={() => load()}
+    onclose={() => (editing = null)}
+  />
+{/if}
 
 <style>
   .head {
@@ -378,6 +411,19 @@
   }
   .small {
     font-size: 13px;
+  }
+  .q-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  .open {
+    cursor: pointer;
+    border-radius: var(--radius);
+  }
+  .open:hover,
+  .open:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .nowrap {
     white-space: nowrap;
