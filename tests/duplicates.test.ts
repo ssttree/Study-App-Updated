@@ -2,9 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   findDuplicates,
-  fingerprintFromGrey,
-  GRID_H,
-  GRID_W,
+  fingerprintFromPixels,
   normaliseQuestion,
   pairKey,
   pictureSimilarity,
@@ -99,17 +97,29 @@ describe('finding duplicates', () => {
   });
 
   it('matches pictures that look the same', () => {
-    const grid = (seed: number, flip: number[] = []) => {
-      const g = new Float32Array((GRID_W + 1) * GRID_H);
-      for (let i = 0; i < g.length; i++) g[i] = ((i * 7919 + seed * 104729) % 251) + (flip.includes(i) ? 300 : 0);
-      return g;
+    // A made up "page" of text lines; the copy has more margin and slight noise.
+    const page = (seed: number, pad: number, noise = 0) => {
+      // Lines of "words": dark blocks of random width with gaps, from a seeded random source.
+      let r = seed;
+      const rand = () => ((r = (r * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const w = 400 + pad * 2, h = 60 + pad * 2;
+      const g = new Uint8Array(w * h).fill(255);
+      for (let line = 0; line < 3; line++) {
+        let x = 0;
+        while (x < 400) {
+          const word = 10 + Math.floor(rand() * 40);
+          for (let y = line * 20; y < line * 20 + 12; y++) for (let i = x; i < Math.min(400, x + word); i++) g[(y + pad) * w + i + pad] = 20 + (noise ? (i * y) % noise : 0);
+          x += word + 6 + Math.floor(rand() * 10);
+        }
+      }
+      return fingerprintFromPixels(g, w, h);
     };
-    const f1 = fingerprintFromGrey(grid(1), 4);
-    const f2 = fingerprintFromGrey(grid(1, [5, 40]), 4.1);
-    const f3 = fingerprintFromGrey(grid(2), 4);
+    const f1 = page(1, 4);
+    const f2 = page(1, 30, 40);
+    const f3 = page(2, 4);
     expect(pictureSimilarity(f1, f2)).toBeGreaterThan(0.95);
     expect(pictureSimilarity(f1, f3)).toBeLessThan(0.8);
-    expect(pictureSimilarity(f1, fingerprintFromGrey(grid(1), 2))).toBe(0);
+    expect(pictureSimilarity(f1, { ...f1, ratio: f1.ratio * 2 })).toBe(0);
     const a = problem('acids', { questionImage: 'i1', source: 'atarnotes' });
     const b = problem('acids', { questionImage: 'i2', source: 'atarnotes' });
     const c = problem('acids', { questionImage: 'i3', source: 'atarnotes' });
@@ -118,6 +128,15 @@ describe('finding duplicates', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].kind).toBe('picture');
     expect(groups[0].problems.map((p) => p.id)).toEqual([a.id, b.id]);
+    // Two look-alike questions from the same textbook chapter are different questions.
+    const t1 = { ...a, source: 'textbook' as const, from: 'Ch 1' };
+    const t2 = { ...b, source: 'textbook' as const, from: 'Ch 1' };
+    expect(findDuplicates([t1, t2], skills, prints)).toHaveLength(0);
+    // A third copy that looks like both is paired with the closer one only.
+    const t3 = { ...problem('acids', { questionImage: 'i4', source: 'atarnotes' }), from: 'Topic test' };
+    const both = findDuplicates([t1, t2, t3], skills, new Map([...prints, ['i4', f1]]));
+    expect(both).toHaveLength(1);
+    expect(both[0].problems.map((p) => p.id).sort()).toEqual([t1.id, t3.id].sort());
   });
 });
 

@@ -76,50 +76,78 @@ export function similarity(a: string, b: string): number {
   return (2 * shared) / (a.length - 1 + (b.length - 1));
 }
 
-/** A small picture fingerprint: shape of the picture and which way brightness changes across a grid. */
+/** A small picture fingerprint: the shape of the inked part and how much ink falls in each cell of a grid. */
 export interface Fingerprint {
-  /** width / height */
+  /** width / height of the inked part */
   ratio: number;
-  /** One bit per grid cell, packed into 32-bit numbers. */
-  bits: number[];
+  /** Ink in each grid cell (0 blank to 255 solid), row by row, GRID_W x GRID_H. */
+  ink: number[];
 }
 
 /** Grid the fingerprint is taken on. Wide, because question pictures are mostly lines of text. */
-export const GRID_W = 32;
+export const GRID_W = 64;
 export const GRID_H = 16;
 
-/** Builds a fingerprint from grey values on a (GRID_W + 1) x GRID_H grid. */
-export function fingerprintFromGrey(grey: ArrayLike<number>, ratio: number): Fingerprint {
-  const bits: number[] = new Array(Math.ceil((GRID_W * GRID_H) / 32)).fill(0);
-  let n = 0;
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
-      const i = y * (GRID_W + 1) + x;
-      if (grey[i] > grey[i + 1]) bits[n >> 5] |= 1 << (n & 31);
-      n++;
+/**
+ * Builds a fingerprint from a picture's grey pixels (0 black to 255 white),
+ * using only the inked box so extra white margin doesn't matter. Each grid
+ * cell is the average of the pixels in it, which copes with a picture saved
+ * at a different size.
+ */
+export function fingerprintFromPixels(grey: ArrayLike<number>, width: number, height: number, inkBelow = 200): Fingerprint {
+  let x0 = width, y0 = height, x1 = -1, y1 = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (grey[y * width + x] < inkBelow) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
     }
   }
-  return { ratio, bits };
+  if (x1 < x0) [x0, y0, x1, y1] = [0, 0, width - 1, height - 1];
+  const bw = x1 - x0 + 1;
+  const bh = y1 - y0 + 1;
+  const sum = new Array(GRID_W * GRID_H).fill(0);
+  const count = new Array(GRID_W * GRID_H).fill(0);
+  for (let y = y0; y <= y1; y++) {
+    const gy = Math.min(GRID_H - 1, Math.floor(((y - y0) * GRID_H) / bh));
+    for (let x = x0; x <= x1; x++) {
+      const gx = Math.min(GRID_W - 1, Math.floor(((x - x0) * GRID_W) / bw));
+      sum[gy * GRID_W + gx] += 255 - grey[y * width + x];
+      count[gy * GRID_W + gx]++;
+    }
+  }
+  return { ratio: bw / bh, ink: sum.map((v, i) => Math.round(v / (count[i] || 1))) };
 }
 
-function bitCount(v: number): number {
-  v = v - ((v >>> 1) & 0x55555555);
-  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
-  return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
-}
-
-/** How alike two pictures are, 0 to 1. Pictures of quite different shapes score 0. */
+/** How alike two pictures are, 0 to 1 (correlation of their ink grids). Pictures of quite different shapes score 0. */
 export function pictureSimilarity(a: Fingerprint, b: Fingerprint): number {
-  if (Math.abs(a.ratio - b.ratio) / Math.max(a.ratio, b.ratio) > 0.1) return 0;
-  let diff = 0;
-  for (let i = 0; i < a.bits.length; i++) diff += bitCount((a.bits[i] ^ b.bits[i]) >>> 0);
-  return 1 - diff / (GRID_W * GRID_H);
+  if (Math.abs(a.ratio - b.ratio) / Math.max(a.ratio, b.ratio) > 0.06) return 0;
+  const n = a.ink.length;
+  let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) {
+    ma += a.ink[i];
+    mb += b.ink[i];
+  }
+  ma /= n;
+  mb /= n;
+  let ab = 0, aa = 0, bb = 0;
+  for (let i = 0; i < n; i++) {
+    const x = a.ink[i] - ma;
+    const y = b.ink[i] - mb;
+    ab += x * y;
+    aa += x * x;
+    bb += y * y;
+  }
+  return aa && bb ? Math.max(0, ab / Math.sqrt(aa * bb)) : 0;
 }
 
 /** Typed questions this alike (after formatting is taken out) count as the same. */
 export const TEXT_MATCH = 0.92;
 /** Pictures this alike count as the same. */
-export const PICTURE_MATCH = 0.95;
+export const PICTURE_MATCH = 0.9;
 /** Very short questions ("Simplify.") only match when exactly the same. */
 const SHORT = 25;
 
@@ -150,6 +178,11 @@ function sourceKey(p: Problem): string {
  */
 export function isSkillCopy(a: Problem, b: Problem): boolean {
   return a.skillId !== b.skillId && sourceKey(a) === sourceKey(b) && Math.abs(a.created - b.created) < 60_000;
+}
+
+/** Both cut from the same PDF or worksheet in one import, so different questions. */
+function sameSheet(a: Problem, b: Problem): boolean {
+  return !!a.from && a.from === b.from && a.source === b.source;
 }
 
 /**
@@ -205,17 +238,36 @@ export function findDuplicates(
       .filter((x): x is { i: number; f: Fingerprint } => !!x.f);
     for (let x = 1; x < pics.length; x++) {
       for (let y = 0; y < x; y++) {
+        const pa = list[pics[y].i];
+        const pb = list[pics[x].i];
+        // Two questions cut from the same PDF are different questions: the import already tells them apart,
+        // and textbook exercises often have questions that look almost alike (Q6 and Q7 with new numbers).
+        if (sameSheet(pa, pb)) continue;
         const score = pictureSimilarity(pics[y].f, pics[x].f);
-        if (score >= PICTURE_MATCH && ok(list[pics[y].i], list[pics[x].i])) links.push({ a: pics[y].i, b: pics[x].i, kind: 'picture', score });
+        if (score >= PICTURE_MATCH && ok(pa, pb)) links.push({ a: pics[y].i, b: pics[x].i, kind: 'picture', score });
       }
     }
 
-    // Join linked questions into groups.
+    // Join linked questions into groups, closest matches first. Two questions that are known to be
+    // different (from one sheet, copies for several skills, or marked as not the same) never end up
+    // in one group through a third question that looks like both.
     const parent = list.map((_, i) => i);
+    const members = list.map((_, i) => [i]);
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-    for (const l of links) parent[find(l.a)] = find(l.b);
+    const apart = (a: Problem, b: Problem) => !ok(a, b) || (!a.questionText && !b.questionText && sameSheet(a, b));
+    const used: typeof links = [];
+    for (const l of [...links].sort((x, y) => y.score - x.score)) {
+      const ra = find(l.a);
+      const rb = find(l.b);
+      if (ra !== rb) {
+        if (members[ra].some((i) => members[rb].some((j) => apart(list[i], list[j])))) continue;
+        parent[ra] = rb;
+        members[rb].push(...members[ra]);
+      }
+      used.push(l);
+    }
     const byRoot = new Map<number, { members: Set<number>; kind: DuplicateGroup['kind']; score: number }>();
-    for (const l of links) {
+    for (const l of used) {
       const root = find(l.a);
       const g = byRoot.get(root) ?? { members: new Set<number>(), kind: l.kind, score: 1 };
       g.members.add(l.a).add(l.b);
