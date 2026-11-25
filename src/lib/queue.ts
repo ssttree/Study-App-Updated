@@ -12,6 +12,7 @@ export type StudyFilter =
   | { kind: 'all' }
   | { kind: 'subject'; subject: string }
   | { kind: 'deck'; deckId: string }
+  | { kind: 'decks'; deckIds: string[] }
   | { kind: 'topic'; deckId: string; topic: string }
   | { kind: 'tag'; tag: string };
 
@@ -46,6 +47,8 @@ export function matchesFilter(card: Card, decks: Map<string, Deck>, filter: Stud
       return decks.get(card.deckId)?.subject === filter.subject;
     case 'deck':
       return card.deckId === filter.deckId;
+    case 'decks':
+      return filter.deckIds.includes(card.deckId);
     case 'topic':
       return card.deckId === filter.deckId && card.topic === filter.topic;
     case 'tag':

@@ -60,7 +60,7 @@
       .map((it) => ({
         item: it,
         text: itemText(it, tasks, assessments, planner!.today),
-        link: itemLink(it, tasks),
+        link: itemLink(it, tasks) || href('planner'),
         where: it.start ? clockText(clockMinutes(it.start)) : it.windowId === EXTRA_WINDOW ? 'Extra' : (windows.get(it.windowId) ?? ''),
         done: it.status === 'done' || (it.kind === 'flashcards' && planner!.cardsLeft === 0 && planner!.logsToday.length > 0),
       }));

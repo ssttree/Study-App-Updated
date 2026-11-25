@@ -243,6 +243,20 @@ export function buildSkillSet(data: PracticeData, skillId: string, minutes: numb
 }
 
 /**
+ * Several skills you picked for a calendar block: the time shared between
+ * them, questions taken in turn from each so they are interleaved.
+ */
+export function buildPickedSet(data: PracticeData, skillIds: string[], minutes: number, now = Date.now(), rng = Math.random): MixItem[] {
+  const ids = skillIds.filter((id) => data.skills.some((s) => s.id === id));
+  if (ids.length <= 1) return ids[0] ? buildSkillSet(data, ids[0], minutes, now, rng) : [];
+  const share = Math.max(1, Math.round(minutes / ids.length));
+  const sets = ids.map((id) => buildSkillSet(data, id, share, now, rng));
+  const out: MixItem[] = [];
+  for (let i = 0; sets.some((set) => i < set.length); i++) for (const set of sets) if (set[i]) out.push(set[i]);
+  return out;
+}
+
+/**
  * Homework: the task's worksheets in their own order, questions not yet tried
  * since the homework was set first, as many as fit. Once every question has
  * been tried it falls back to a normal set from the first worksheet.
