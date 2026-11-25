@@ -1,8 +1,9 @@
 // Changes you make to a plan or a task. Each one saves straight away and the
 // screen reloads, which rebuilds everything you haven't touched.
 
-import { newId, saveTask, savePlans } from '../db';
-import type { DayPlan, PlanItem, Task } from '../types';
+import { newId, saveAvailability, saveTask, savePlans } from '../db';
+import type { Availability, BlockTemplate, DayPlan, PlanItem, Task } from '../types';
+import { changedItem, withBlock, withoutBlock, type ItemChanges } from './blocks';
 import { CALENDAR_WINDOW, remaining, type BuiltDay } from './build';
 import type { QuickTask } from './quickadd';
 
@@ -150,3 +151,20 @@ export async function dropTask(task: Task, now = Date.now()): Promise<void> {
 }
 
 export { remaining };
+
+// Events, blocks and what you study in an item.
+
+/** Saves changes made in an item's window (name, time, length, what to study). */
+export async function updateItem(day: BuiltDay, item: PlanItem, changes: ItemChanges): Promise<void> {
+  const changed = changedItem(item, changes);
+  if (changes.start && !item.start) changed.windowId = CALENDAR_WINDOW;
+  await savePlans([withItem(day.plan, item.id, () => changed)]);
+}
+
+export async function saveBlock(a: Availability, block: BlockTemplate): Promise<void> {
+  await saveAvailability(withBlock(a, block));
+}
+
+export async function deleteBlock(a: Availability, id: string): Promise<void> {
+  await saveAvailability(withoutBlock(a, id));
+}

@@ -8,6 +8,7 @@
   import {
     buildDailyMix,
     buildHomeworkSet,
+    buildPickedSet,
     buildSkillSet,
     buildTestPrep,
     costMinutes,
@@ -82,6 +83,12 @@
       const task = await getTask(rest[0]);
       title = task?.title ?? 'Homework';
       items = task ? buildHomeworkSet(d, taskSkillIds(task), task.created, minutes) : [];
+    } else if (kind === 'skills') {
+      // Skills picked for a calendar block, as one comma list.
+      const ids = (rest[0] ?? '').split(',').filter(Boolean);
+      const names = ids.map((id) => d.skills.find((s) => s.id === id)?.name).filter(Boolean);
+      title = names.length > 2 ? `${names.slice(0, 2).join(' + ')} + ${names.length - 2} more` : names.join(' + ') || 'Skills';
+      items = buildPickedSet(d, ids, minutes);
     } else if (kind === 'skill') {
       const skill = d.skills.find((s) => s.id === rest[0]);
       title = skill?.name ?? 'Skill';

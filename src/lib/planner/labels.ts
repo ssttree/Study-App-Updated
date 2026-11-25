@@ -3,7 +3,7 @@
 import { href } from '../router.svelte';
 import { reviewHref } from '../filters';
 import { shortSubject } from '../practice/load';
-import { taskSkillIds, type PlanItem, type StudyWindow, type Task, type TestPlan, type WindowKind } from '../types';
+import { taskSkillIds, type PlanItem, type StudyPick, type StudyWindow, type Task, type TestPlan, type WindowKind } from '../types';
 import { clockMinutes, clockText, dueLabel } from './dates';
 
 export const KINDS: WindowKind[] = ['bus', 'desk', 'flexible', 'school'];
@@ -32,9 +32,42 @@ export interface ItemText {
   detail: string;
 }
 
-export function itemText(item: PlanItem, tasks: Map<string, Task>, assessments: Map<string, TestPlan>, today: string): ItemText {
+/** Names of skills and decks, to say what a block is for. */
+export interface StudyNames {
+  skills: Map<string, string>;
+  decks: Map<string, string>;
+}
+
+/** True when something was picked to study. */
+export function hasPick(p: StudyPick | undefined): boolean {
+  return !!(p?.skillIds?.length || p?.deckIds?.length);
+}
+
+/** "Equilibrium + Acids · Chem cards", or '' when nothing is picked or names aren't known. */
+export function pickText(p: StudyPick | undefined, names?: StudyNames): string {
+  if (!p || !names) return '';
+  const list = (ids: string[] | undefined, from: Map<string, string>) => {
+    const got = (ids ?? []).map((id) => from.get(id)).filter((n): n is string => !!n);
+    return got.length > 2 ? `${got.slice(0, 2).join(' + ')} + ${got.length - 2} more` : got.join(' + ');
+  };
+  const skills = list(p.skillIds, names.skills);
+  const decks = list(p.deckIds, names.decks);
+  return [skills, decks ? `cards: ${decks}` : ''].filter(Boolean).join(' · ');
+}
+
+export function itemText(item: PlanItem, tasks: Map<string, Task>, assessments: Map<string, TestPlan>, today: string, names?: StudyNames): ItemText {
+  const base = baseText(item, tasks, assessments, today);
+  const picked = pickText(item.study, names);
+  if (!picked) return base;
+  // An event says what it's for; the others keep their own words and add the choice.
+  return { title: base.title, detail: picked };
+}
+
+function baseText(item: PlanItem, tasks: Map<string, Task>, assessments: Map<string, TestPlan>, today: string): ItemText {
   const subjects = (item.subjects ?? []).map(shortSubject).join(' + ');
   switch (item.kind) {
+    case 'event':
+      return { title: item.title?.trim() || 'Event', detail: hasPick(item.study) ? 'Study block' : '' };
     case 'flashcards':
       return { title: 'Flashcards', detail: 'Everything due, new cards mixed in' };
     case 'homework': {
@@ -58,10 +91,31 @@ export function itemText(item: PlanItem, tasks: Map<string, Task>, assessments: 
   }
 }
 
-/** Where "Start" goes for an item. */
+/** Practice for the picked skills, or '' when none are picked. */
+export function skillsLink(p: StudyPick | undefined, minutes: number): string {
+  const ids = p?.skillIds ?? [];
+  if (!ids.length) return '';
+  const m = `${Math.max(5, Math.round(minutes))}m`;
+  return ids.length === 1 ? href('practice', 'run', 'skill', ids[0], m) : href('practice', 'run', 'skills', ids.join(','), m);
+}
+
+/** Flashcards for the picked decks, or '' when none are picked. */
+export function decksLink(p: StudyPick | undefined): string {
+  const ids = p?.deckIds ?? [];
+  return ids.length ? reviewHref({ kind: 'decks', deckIds: ids }) : '';
+}
+
+/**
+ * Where "Start" goes for an item: what you picked to study in it (skills
+ * first), else what the item is. '' for an event with nothing picked.
+ */
 export function itemLink(item: PlanItem, tasks: Map<string, Task>): string {
+  const picked = skillsLink(item.study, item.minutes) || decksLink(item.study);
+  if (picked) return picked;
   const minutes = `${Math.max(5, Math.round(item.minutes))}m`;
   switch (item.kind) {
+    case 'event':
+      return '';
     case 'flashcards':
       return reviewHref({ kind: 'all' });
     case 'homework': {
@@ -79,7 +133,12 @@ export function itemLink(item: PlanItem, tasks: Map<string, Task>): string {
 }
 
 /** Dot colour by kind, matching the rest of the app. */
-export function itemColour(item: PlanItem): string {
+export function itemColour(item: Pick<PlanItem, 'kind' | 'study'>): string {
+  if (item.kind === 'event') {
+    if (item.study?.skillIds?.length) return 'var(--accent)';
+    if (item.study?.deckIds?.length) return 'var(--info)';
+    return 'var(--dot)';
+  }
   if (item.kind === 'flashcards') return 'var(--info)';
   if (item.kind === 'homework') return 'var(--good)';
   if (item.kind === 'prep' || item.kind === 'final') return 'var(--warn)';

@@ -254,7 +254,7 @@ function buildDay(
   for (const it of items) if (!ids.has(it.windowId) && !it.start) it.windowId = EXTRA_WINDOW;
 
   const order = new Map(windows.map((w, i) => [w.id, i]));
-  const kindOrder = { flashcards: 0, homework: 1, prep: 2, final: 2, problems: 3 };
+  const kindOrder = { flashcards: 0, homework: 1, prep: 2, final: 2, problems: 3, event: 4 };
   items.sort((a, b) => (order.get(a.windowId) ?? 99) - (order.get(b.windowId) ?? 99) || kindOrder[a.kind] - kindOrder[b.kind]);
 
   return {

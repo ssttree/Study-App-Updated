@@ -24,7 +24,7 @@
   import { addDays, clockMinutes, clockText, dayLabel, dueLabel, keyToTime, minutesText, weekday } from '../lib/planner/dates';
   import { windowsFor } from '../lib/planner/availability';
   import { dayEvents, type DayEvent } from '../lib/planner/calendar';
-  import { itemColour, itemLink, itemText, KIND_TEXT, windowTime } from '../lib/planner/labels';
+  import { hasPick, itemColour, itemLink, itemText, KIND_TEXT, pickText, windowTime, type StudyNames } from '../lib/planner/labels';
   import { stageOf, STAGE_LABEL } from '../lib/planner/assessments';
   import { shortSubject } from '../lib/practice/load';
   import { plural } from '../lib/load';
@@ -34,7 +34,9 @@
   import { reviewWeek } from '../lib/progress/review';
   import { untrack } from 'svelte';
   import { KINDS } from '../lib/planner/labels';
-  import type { Availability, PlanItem, StudyWindow, Task, WeeklyReview } from '../lib/types';
+  import type { Availability, BlockTemplate, PlanItem, StudyWindow, Task, WeeklyReview } from '../lib/types';
+  import EventDialog, { type EventTarget } from '../components/EventDialog.svelte';
+  import { blockItem, blocksOf } from '../lib/planner/blocks';
 
   /** A date key: show that day in full instead of today. */
   let { day: dayProp }: { day?: string } = $props();
@@ -75,6 +77,25 @@
   }
 
   const tasks = $derived(new Map((data?.tasks ?? []).map((t) => [t.id, t])));
+  /** Skill and deck names, to say what a block is for. */
+  const names = $derived<StudyNames>({
+    skills: new Map((data?.practice.skills ?? []).map((s) => [s.id, s.name])),
+    decks: new Map((data?.decks ?? []).map((d) => [d.id, d.name])),
+  });
+  /** An event with nothing to study in it, like a dentist visit: not study time. */
+  const plainEvent = (it: PlanItem) => it.kind === 'event' && !hasPick(it.study);
+
+  // The event window: adding an event, opening an item, or making a block.
+  let dialogTarget = $state.raw<EventTarget | null>(null);
+  function openItem(day: BuiltDay, item: PlanItem) {
+    dialogTarget = { mode: 'item', day, item };
+  }
+  function newEvent(date?: string, start?: number) {
+    if (!data) return;
+    const d = date && date >= data.today ? date : view === 'day' && shown && shown.date >= data.today ? shown.date : data.today;
+    const at = start ?? freeTime(d, 30) ?? 16 * 60;
+    dialogTarget = { mode: 'new', date: d, start: hhmm(at) };
+  }
   const assessments = $derived(new Map((data?.assessments ?? []).map((a) => [a.id, a])));
   const today = $derived(data?.days[0]);
   /** The day shown in full: today, or the one picked in the week. */
@@ -110,7 +131,7 @@
   /** The next thing: the first unfinished item in a window that hasn't ended yet, else anything left. */
   const next = $derived.by(() => {
     if (!today || !data) return undefined;
-    const open = today.plan.items.filter((it) => it.status === 'todo' && !isDone(it, today.date) && !it.optional);
+    const open = today.plan.items.filter((it) => it.status === 'todo' && !isDone(it, today.date) && !it.optional && !plainEvent(it));
     const d = new Date(data.now);
     const nowMinutes = d.getHours() * 60 + d.getMinutes();
     const ends = (it: PlanItem) => {
@@ -228,8 +249,32 @@
     e.dataTransfer?.setData('text/plain', dragging);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
   }
+  function blockStart(e: DragEvent, b: BlockTemplate) {
+    dragging = `block|${b.id}`;
+    dragMinutes = b.minutes;
+    grab = 0;
+    e.dataTransfer?.setData('text/plain', dragging);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
+  }
+  /** Add on a block: puts it on the day at its next free time. */
+  function addBlock(b: BlockTemplate) {
+    if (!data) return;
+    const date = trayDate;
+    const at = freeTime(date, b.minutes);
+    const item = blockItem(b, at === null ? '' : hhmm(at));
+    if (at === null) delete item.start;
+    act(() => placeItem(data!.days, date, item));
+  }
+  /** Clicking an empty time on a day (from today on) adds an event there. */
+  function colClick(e: MouseEvent, cal: Cal, date: string) {
+    if (!data || date < data.today || busy) return;
+    const el = e.target as HTMLElement;
+    if (el !== e.currentTarget && !el.classList.contains('hline')) return;
+    grab = 0;
+    newEvent(date, timeAt(cal, e));
+  }
   /** The time (snapped to 15 minutes) at a point on a day column. */
-  function timeAt(cal: Cal, e: DragEvent): number {
+  function timeAt(cal: Cal, e: MouseEvent): number {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const px = e.clientY - rect.top - grab;
     let lo = cal.range.start;
@@ -259,6 +304,9 @@
     if (from === 'tray') {
       const entry = tray.find((t) => t.key === payload.slice(5));
       if (entry) act(() => placeItem(data!.days, date, entryItem(entry, start)));
+    } else if (from === 'block') {
+      const b = blocks.find((x) => x.id === id);
+      if (b) act(() => placeItem(data!.days, date, blockItem(b, start)));
     } else {
       act(() => moveItemTo(data!.days, from, id, date, start));
     }
@@ -306,6 +354,7 @@
   }
 
   const calMode = $derived(data ? calendarMode(data.input.availability) : true);
+  const blocks = $derived(data ? blocksOf(data.availability) : []);
   /** The day the to do tray adds to: the day shown, or today in the week view. */
   const trayDate = $derived(data && shown ? (view === 'day' && shown.date >= data.today ? shown.date : data.today) : '');
   const tray = $derived(
@@ -535,7 +584,7 @@
     return `${fmt(start, start.slice(5, 7) !== end.slice(5, 7))} to ${fmt(end, true)}`;
   });
 
-  const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped').reduce((m, it) => m + it.minutes, 0);
+  const planned = (day: BuiltDay) => day.plan.items.filter((it) => it.status !== 'skipped' && !plainEvent(it)).reduce((m, it) => m + it.minutes, 0);
 </script>
 
 <main class="page wide">
@@ -561,7 +610,7 @@
           Planner · {new Date(data.now).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })}
         </div>
         {#if next}
-          {@const text = itemText(next, tasks, assessments, data.today)}
+          {@const text = itemText(next, tasks, assessments, data.today, names)}
           <h1>Next: {text.title}</h1>
           <p class="lead muted">
             {#if next.start}
@@ -635,6 +684,7 @@
               <button class="btn small" onclick={() => weekOffset++} disabled={weekOffset >= MAX_WEEKS} aria-label="Next week">&rarr;</button>
             </div>
           {/if}
+          <button class="btn small add-event" onclick={() => newEvent()} disabled={busy} title="Or click an empty time on the calendar">+ Add event</button>
         </div>
 
         {#if view === 'day'}
@@ -722,6 +772,36 @@
               <p class="muted small">Nothing waiting. Add homework below.</p>
             {/each}
           </section>
+
+          <section class="panel tray" aria-label="Your blocks">
+            <div class="tray-head">
+              <h2>Your blocks</h2>
+              <button class="btn small" onclick={() => (dialogTarget = { mode: 'block', block: null })}>+ New block</button>
+            </div>
+            <p class="muted small tray-hint">Sessions you plan again and again. Drag one onto a time, or Add puts it in the next free gap.</p>
+            {#each blocks as b (b.id)}
+              <div
+                class="tray-item block-item"
+                style:--c={itemColour({ kind: 'event', study: b.study })}
+                role="listitem"
+                draggable="true"
+                ondragstart={(e) => blockStart(e, b)}
+                ondragend={dragEnd}
+                title="Drag onto the calendar"
+              >
+                <span class="tray-text">
+                  <span class="tray-title">{b.name}</span>
+                  <span class="muted small">{b.minutes} min{pickText(b.study, names) ? ` · ${pickText(b.study, names)}` : ''}</span>
+                </span>
+                <span class="block-tools">
+                  <button class="btn small" onclick={() => (dialogTarget = { mode: 'block', block: b })}>Edit</button>
+                  <button class="btn small" onclick={() => addBlock(b)} disabled={busy}>Add</button>
+                </span>
+              </div>
+            {:else}
+              <p class="muted small">No blocks yet. Make one for a session you repeat, like "Chem flashcards, 30 min".</p>
+            {/each}
+          </section>
         {/if}
         <section class="panel add">
           <QuickAdd today={data.today} onadded={() => reload()} />
@@ -769,6 +849,12 @@
   {/if}
 </main>
 
+{#if dialogTarget && data}
+  {#key dialogTarget}
+    <EventDialog target={dialogTarget} {data} {names} onclose={() => (dialogTarget = null)} onchanged={reload} />
+  {/key}
+{/if}
+
 {#snippet calendar(cal: Cal, compact: boolean)}
   <div class="cal" class:compact style:--cols={cal.days.length}>
     {#if compact}
@@ -796,6 +882,8 @@
       {/each}
       {#each cal.days as c (c.day.date)}
         {@const day = c.day}
+        <!-- Clicking an empty time is a shortcut; "+ Add event" does the same from the keyboard. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <div
           class="col"
           class:today={day.date === data!.today}
@@ -807,6 +895,8 @@
             if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) preview = null;
           }}
           ondrop={(e) => calMode && colDrop(e, cal, day.date)}
+          onclick={(e) => colClick(e, cal, day.date)}
+          title={day.date >= data!.today ? 'Click an empty time to add an event' : undefined}
         >
           {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
           {#each c.events as e, i (i)}
@@ -879,7 +969,7 @@
 
 {#snippet block(day: BuiltDay, t: TimedItem, pos: string, height: number)}
   {@const item = t.item}
-  {@const text = itemText(item, tasks, assessments, data!.today)}
+  {@const text = itemText(item, tasks, assessments, data!.today, names)}
   {@const done = isDone(item, day.date)}
   {@const tall = height >= 48}
   <div
@@ -902,17 +992,21 @@
       aria-label="Done: {text.title}"
       onchange={() => act(() => (item.status === 'done' ? reopenItem(day, item, data!.tasks) : completeItem(day, item, data!.tasks)))}
     />
-    <span class="blk-main">
+    <button type="button" class="blk-main" onclick={() => openItem(day, item)} title="Open: choose what to study, change the time">
       <span class="blk-title">
         {text.title}
         {#if item.kind === 'homework' && item.taskId && (tasks.get(item.taskId)?.carryOvers ?? 0) > 0}<span class="tag">carried over</span>{/if}
         {#if item.optional}<span class="tag">optional</span>{/if}
       </span>
       <span class="mono small blk-time">{spanText(t)} · {item.minutes} min{tall && text.detail ? ` · ${text.detail}` : ''}</span>
-    </span>
+    </button>
     {#if !done}
       <span class="tools">
-        <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
+        {#if itemLink(item, tasks)}
+          <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
+        {:else if item.kind === 'event'}
+          <button class="btn small" onclick={() => openItem(day, item)}>Pick study</button>
+        {/if}
         {@render moreMenu(day, item)}
       </span>
     {/if}
@@ -921,21 +1015,22 @@
 
 {#snippet chip(day: BuiltDay, t: TimedItem, pos: string)}
   {@const item = t.item}
-  {@const text = itemText(item, tasks, assessments, data!.today)}
-  <a
+  {@const text = itemText(item, tasks, assessments, data!.today, names)}
+  <button
+    type="button"
     class="chip"
     class:done={isDone(item, day.date)}
     class:pinned={item.pinned}
     style={pos}
     style:--c={itemColour(item)}
-    href={dayHref(day.date)}
+    onclick={() => openItem(day, item)}
     draggable={item.status === 'todo' && day.date >= data!.today}
     ondragstart={(e) => dragStart(e, day, item)}
     ondragend={dragEnd}
     title="{text.title} · {spanText(t)} · {item.minutes} min"
   >
     <span class="chip-text">{text.title}</span>
-  </a>
+  </button>
 {/snippet}
 
 {#snippet moreMenu(day: BuiltDay, item: PlanItem)}
@@ -980,14 +1075,14 @@
   {#if items.length}
     <section class="loose">
       {#each items as item (item.id)}
-        {@const text = itemText(item, tasks, assessments, data!.today)}
+        {@const text = itemText(item, tasks, assessments, data!.today, names)}
         {@const done = isDone(item, day.date)}
         <div class="loose-item" class:done={done || item.status === 'skipped'}>
           <span class="dot" style:background={itemColour(item)}></span>
-          <span class="grow">
+          <button type="button" class="grow loose-open" onclick={() => openItem(day, item)}>
             {text.title}
             <span class="muted small">· {item.status === 'skipped' ? 'skipped' : calMode ? 'no time set' : 'extra time'} · {item.minutes} min</span>
-          </span>
+          </button>
           {#if item.status === 'skipped'}
             <button class="btn small" onclick={() => act(() => reopenItem(day, item, data!.tasks))}>Undo skip</button>
           {:else if !done}
@@ -996,7 +1091,7 @@
               <button class="btn small" onclick={() => act(() => removeItem(day, item))}>Take off</button>
             {/if}
             <button class="btn small" onclick={() => act(() => completeItem(day, item, data!.tasks))}>Done</button>
-            <a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>
+            {#if itemLink(item, tasks)}<a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>{/if}
           {/if}
         </div>
       {/each}
@@ -1095,6 +1190,9 @@
     flex-wrap: wrap;
     gap: 10px 16px;
     align-items: center;
+  }
+  .add-event {
+    margin-left: auto;
   }
   .seg {
     display: flex;
@@ -1386,6 +1484,13 @@
   .blk-main {
     flex: 1;
     min-width: 0;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1498,6 +1603,8 @@
     font-size: 11px;
   }
   .chip {
+    font-family: inherit;
+    text-align: left;
     left: 2px;
     right: 2px;
     display: flex;
@@ -1565,6 +1672,15 @@
     padding: 8px 0;
     border-bottom: 1px solid var(--line);
     font-size: 14px;
+  }
+  .loose-open {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
   .loose-item.done .grow {
     color: var(--muted);
@@ -1654,6 +1770,20 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  .block-item {
+    flex-wrap: wrap;
+  }
+  .block-item .tray-text {
+    flex: 1 1 100%;
+  }
+  .block-item .tray-title {
+    white-space: normal;
+  }
+  .block-tools {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
   }
   .tray-title {
     font-weight: 600;

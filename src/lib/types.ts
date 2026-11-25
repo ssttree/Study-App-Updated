@@ -354,9 +354,26 @@ export interface Availability {
    * weekly study windows.
    */
   planMode?: 'calendar' | 'windows';
+  /** Blocks you made for sessions you plan again and again, to drag onto the calendar. */
+  blocks?: BlockTemplate[];
 }
 
-export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final';
+/** What a calendar item is for: practice skills and flashcard decks. Empty means nothing chosen. */
+export interface StudyPick {
+  skillIds?: string[];
+  deckIds?: string[];
+}
+
+/** A reusable block, like "Chem flashcards, 30 min". Dragging it in makes an event. */
+export interface BlockTemplate {
+  id: string;
+  name: string;
+  minutes: number;
+  study?: StudyPick;
+}
+
+/** event: something you added by hand or dragged in from one of your blocks. */
+export type PlanItemKind = 'flashcards' | 'homework' | 'problems' | 'prep' | 'final' | 'event';
 export type PlanItemStatus = 'todo' | 'done' | 'skipped';
 
 export interface PlanItem {
@@ -377,6 +394,12 @@ export interface PlanItem {
   started?: boolean;
   /** Only in flexible windows: fine to skip. */
   optional?: boolean;
+  /** Events: the name you gave it. */
+  title?: string;
+  /** What you chose to study in it. For built-in kinds, this replaces what Start opens. */
+  study?: StudyPick;
+  /** The block it was dragged in from, if any. */
+  blockId?: string;
 }
 
 export interface DayPlan {

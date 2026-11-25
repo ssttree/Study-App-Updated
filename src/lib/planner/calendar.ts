@@ -163,9 +163,11 @@ export function blockEvents(
       if (!it.start || it.status === 'skipped') continue;
       const [y, m, d] = day.date.split('-').map(Number);
       const start = new Date(y, m - 1, d, 0, clockMinutes(it.start));
+      // Something you added by hand that isn't study (like a dentist visit) goes on as it is.
+      const plain = it.kind === 'event' && !it.study?.skillIds?.length && !it.study?.deckIds?.length;
       events.push({
         key: `block:${day.date}:${it.id}`,
-        title: `Study: ${title(it)}`,
+        title: plain ? title(it) : `Study: ${title(it)}`,
         description: `${title(it)} (${it.minutes} min)`,
         start: start.toISOString(),
         end: new Date(start.getTime() + it.minutes * 60_000).toISOString(),

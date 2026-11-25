@@ -7,6 +7,7 @@ export function filterFromParts(parts: string[]): StudyFilter {
   const [kind, a, b] = parts;
   if (kind === 'subject' && a) return { kind: 'subject', subject: a };
   if (kind === 'deck' && a) return { kind: 'deck', deckId: a };
+  if (kind === 'decks' && a) return { kind: 'decks', deckIds: a.split(',').filter(Boolean) };
   if (kind === 'topic' && a && b) return { kind: 'topic', deckId: a, topic: b };
   if (kind === 'tag' && a) return { kind: 'tag', tag: a };
   return { kind: 'all' };
@@ -20,6 +21,8 @@ export function filterToParts(filter: StudyFilter): string[] {
       return ['subject', filter.subject];
     case 'deck':
       return ['deck', filter.deckId];
+    case 'decks':
+      return filter.deckIds.length === 1 ? ['deck', filter.deckIds[0]] : ['decks', filter.deckIds.join(',')];
     case 'topic':
       return ['topic', filter.deckId, filter.topic];
     case 'tag':
@@ -40,6 +43,10 @@ export function filterLabel(filter: StudyFilter, decks: Deck[]): string {
       return filter.subject;
     case 'deck':
       return decks.find((d) => d.id === filter.deckId)?.name ?? 'Deck';
+    case 'decks': {
+      const names = filter.deckIds.map((id) => decks.find((d) => d.id === id)?.name).filter(Boolean);
+      return names.length ? names.join(' + ') : 'Decks';
+    }
     case 'topic':
       return filter.topic;
     case 'tag':
