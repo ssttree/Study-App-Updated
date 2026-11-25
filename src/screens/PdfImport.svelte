@@ -7,7 +7,8 @@
   import { getTask, listSkills, problemSkillsByKey, saveTask } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import { allKnown, findSkill, saveProblems, type SaveResult } from '../lib/practice/save';
+  import { allKnown, choiceFor, findSkill, groupBySkill, saveProblems, type SaveResult } from '../lib/practice/save';
+  import SkillTags from '../components/SkillTags.svelte';
   import { SUBJECTS, taskSkillIds, type Skill, type Task } from '../lib/types';
   import type { AnalysedSheet, DraftPair } from '../lib/practice/worksheet';
   import type { OpenPdf, Picture } from '../lib/practice/pdf';
@@ -37,6 +38,8 @@
     knownSkill: string | null;
     /** Textbook chapters: untick an exercise to leave it out. */
     use: boolean;
+    /** Skills set for every question at once (each question can still change its own). */
+    allSkills: string[];
   }
 
   /** Questions found for you (SmarterEd sheets and textbook exercises), rather than snipped by hand. */
@@ -104,6 +107,7 @@
             knownCount,
             knownSkill,
             use: true,
+            allSkills: [],
           });
         }
       } catch (e) {
@@ -196,7 +200,7 @@
       solution,
       problems: [],
       include: true,
-      skill: '',
+      skills: [...sheet.allSkills],
     });
     sheet.pendingQuestion = null;
     sheet.fixing = { index: -1, part: 'question' };
@@ -227,12 +231,10 @@
           s.skill === 'new'
             ? ({ kind: 'new', subject: s.subject, name: s.name, topic: s.analysed.sheet.topic, code: s.analysed.sheet.code, dotPoint: s.dotPoint } as const)
             : ({ kind: 'existing', id: s.skill } as const);
-        // A past paper covers many skills: questions given their own skill are saved there.
-        const groups = new Map<string, DraftPair[]>();
-        for (const d of drafts) groups.set(d.skill ?? '', [...(groups.get(d.skill ?? '') ?? []), d]);
-        for (const [skillId, group] of groups) {
+        // A past paper covers many skills: each question goes into every skill picked for it.
+        for (const [target, group] of groupBySkill(drafts)) {
           const result = await saveProblems(
-            skillId ? { kind: 'existing', id: skillId } : choice,
+            choiceFor(target, choice, s.subject),
             group,
             s.analysed.textbook ? 'textbook' : s.analysed.smarterEd ? 'smartered' : 'snip',
             s.analysed.textbook ? s.analysed.sheet.topic : s.analysed.smarterEd ? s.name || s.fileName : s.fileName.replace(/\.pdf$/i, ''),
@@ -370,6 +372,21 @@
         {#if s.analysed.sheet.topic && s.skill === 'new'}
           <p class="muted small topic">Topic: {s.analysed.sheet.topic}</p>
         {/if}
+        {#if !s.analysed.textbook}
+          <div class="all-skills">
+            <SkillTags
+              skills={subjectSkills.filter((k) => k.id !== s.skill)}
+              value={s.allSkills}
+              onchange={(v) => {
+                s.allSkills = v;
+                for (const p of s.pairs) p.skills = [...v];
+              }}
+              main={s.skill === 'new' ? `${s.name || 'New skill'} (new)` : (subjectSkills.find((k) => k.id === s.skill)?.name ?? 'Sheet skill')}
+              label="Every question into"
+            />
+            <span class="muted small">Change one question's skills next to it.</span>
+          </div>
+        {/if}
 
         {#if s.fixing}
           <div class="fix">
@@ -437,14 +454,14 @@
                 {#if p.level}<LevelBadge level={p.level} />{/if}
                 <label class="marks mono small"><input type="number" min="1" max="20" bind:value={p.marks} /> marks</label>
                 {#if p.mc}<span class="mono small muted">MC</span>{/if}
-                {#if !auto(s) && subjectSkills.length}
-                  <label class="pair-skill small">
-                    <span class="sr-only">Skill for question {p.number}</span>
-                    <select bind:value={p.skill}>
-                      <option value="">{s.skill === 'new' ? `Skill: ${s.name || 'new skill'}` : 'Same skill as the sheet'}</option>
-                      {#each subjectSkills.filter((k) => k.id !== s.skill) as k (k.id)}<option value={k.id}>{k.name}</option>{/each}
-                    </select>
-                  </label>
+                {#if !s.analysed.textbook}
+                  <SkillTags
+                    skills={subjectSkills.filter((k) => k.id !== s.skill)}
+                    value={p.skills}
+                    onchange={(v) => (p.skills = v)}
+                    main={s.skill === 'new' ? `${s.name || 'New skill'} (new)` : (subjectSkills.find((k) => k.id === s.skill)?.name ?? 'Sheet skill')}
+                    label="Q{p.number} into"
+                  />
                 {/if}
                 {#each p.problems as why (why)}<span class="flag small">{why}</span>{/each}
               </div>
@@ -644,12 +661,6 @@
     min-height: 34px;
     padding: 4px 8px;
   }
-  .pair-skill select {
-    width: auto;
-    max-width: 320px;
-    min-height: 34px;
-    padding: 4px 8px;
-  }
   .flag {
     color: var(--warn);
     border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
@@ -694,5 +705,12 @@
   }
   .grow {
     flex: 1 1 240px;
+  }
+  .all-skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    margin-top: 8px;
   }
 </style>

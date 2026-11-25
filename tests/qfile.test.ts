@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import { parseQuestionsFile, questionHeading, subjectName } from '../src/lib/practice/qfile';
 
@@ -59,5 +60,34 @@ describe('questions file', () => {
     expect(questionHeading('Question 4 · (5 marks)')).toEqual({ label: 'Question 4', marks: 5, mc: false });
     expect(subjectName('ext1')).toBe('Maths Extension 1');
     expect(subjectName('Physics')).toBe('');
+  });
+});
+
+describe('questions in several skills', () => {
+  it('groups each question under every skill it goes into', async () => {
+    const { groupBySkill, choiceFor, MAIN_SKILL } = await import('../src/lib/practice/save');
+    const a: { n: number; skills?: string[] } = { n: 1 };
+    const b = { n: 2, skills: ['s1', MAIN_SKILL] };
+    const c = { n: 3, skills: ['s1', 'new:Vectors', 's1'] };
+    const groups = groupBySkill([a, b, c]);
+    expect([...groups.keys()]).toEqual([MAIN_SKILL, 's1', 'new:Vectors']);
+    expect(groups.get(MAIN_SKILL)!.map((x) => x.n)).toEqual([1, 2]);
+    expect(groups.get('s1')!.map((x) => x.n)).toEqual([2, 3]);
+    const main = { kind: 'existing', id: 'm' } as const;
+    expect(choiceFor(MAIN_SKILL, main, 'Maths Extension 1')).toBe(main);
+    expect(choiceFor('s1', main, 'Maths Extension 1')).toEqual({ kind: 'existing', id: 's1' });
+    expect(choiceFor('new:Vectors', main, 'Maths Extension 1')).toEqual({ kind: 'new', subject: 'Maths Extension 1', name: 'Vectors' });
+  });
+
+  it('saves a copy into each skill', async () => {
+    const { saveProblems } = await import('../src/lib/practice/save');
+    const { listProblems } = await import('../src/lib/db');
+    const draft = { questionText: 'Find $x$.', solutionText: '$x=2$', label: 'Q1', marks: 2, mc: false, key: 'typed:multi-skill' };
+    const one = await saveProblems({ kind: 'new', subject: 'Maths Advanced', name: 'Multi A' }, [draft], 'typed', 'test');
+    const two = await saveProblems({ kind: 'new', subject: 'Maths Advanced', name: 'Multi B' }, [draft], 'typed', 'test');
+    expect(one.added).toBe(1);
+    expect(two.added).toBe(1);
+    const all = (await listProblems()).filter((p) => p.label === 'Q1' && p.from === 'test');
+    expect(new Set(all.map((p) => p.skillId))).toEqual(new Set([one.skill.id, two.skill.id]));
   });
 });

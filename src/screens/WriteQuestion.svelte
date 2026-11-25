@@ -6,7 +6,8 @@
   import { listSkills } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
-  import { saveProblems, type SaveResult } from '../lib/practice/save';
+  import { choiceFor, groupBySkill, saveProblems, type SaveResult } from '../lib/practice/save';
+  import SkillTags from '../components/SkillTags.svelte';
   import { SUBJECTS, type Skill } from '../lib/types';
   import { untrack } from 'svelte';
 
@@ -23,6 +24,8 @@
   let error = $state('');
   let saving = $state(false);
   let saved = $state.raw<SaveResult[]>([]);
+  /** The skills this question goes into; empty means just the one picked above. */
+  let into = $state<string[]>([]);
 
   listSkills().then((s) => (skills = s));
 
@@ -36,15 +39,13 @@
     try {
       const label = source.trim();
       const choice = skill === 'new' ? ({ kind: 'new', subject, name } as const) : ({ kind: 'existing', id: skill } as const);
-      const result = await saveProblems(
-        choice,
-        [{ questionText: question, solutionText: answer, label, marks: Math.max(1, Math.round(Number(marks) || 1)), mc: false, key: `typed:${question.trim()}` }],
-        'typed',
-        label || 'Typed question',
-      );
-      if (!result.added) error = 'That question is in this skill already.';
+      const draft = { questionText: question, solutionText: answer, label, marks: Math.max(1, Math.round(Number(marks) || 1)), mc: false, key: `typed:${question.trim()}`, skills: into };
+      const results: SaveResult[] = [];
+      for (const [target, group] of groupBySkill([draft])) results.push(await saveProblems(choiceFor(target, choice, subject), group, 'typed', label || 'Typed question'));
+      const result = results[0];
+      if (!results.some((r) => r.added)) error = results.length > 1 ? 'That question is in those skills already.' : 'That question is in this skill already.';
       else {
-        saved = [result, ...saved];
+        saved = [...results.filter((r) => r.added), ...saved];
         question = '';
         answer = '';
         source = '';
@@ -81,7 +82,13 @@
   <section class="panel fields">
     <label class="field">
       Subject
-      <select bind:value={subject} onchange={() => (skill = 'new')}>
+      <select
+        bind:value={subject}
+        onchange={() => {
+          skill = 'new';
+          into = [];
+        }}
+      >
         {#each SUBJECTS as s (s)}<option value={s}>{s}</option>{/each}
       </select>
     </label>
@@ -97,6 +104,16 @@
     {/if}
     <label class="field">Where it is from (optional)<input type="text" bind:value={source} placeholder="e.g. 2022 HSC Q23" /></label>
     <label class="field">Marks<input type="number" min="1" max="25" bind:value={marks} /></label>
+    <div class="into">
+      <SkillTags
+        skills={subjectSkills.filter((k) => k.id !== skill)}
+        value={into}
+        onchange={(v) => (into = v)}
+        main={skill === 'new' ? `${name.trim() || 'New skill'} (new)` : (subjectSkills.find((k) => k.id === skill)?.name ?? 'Skill')}
+        label="Goes into"
+      />
+      <span class="muted small">Stays set for the next question too.</span>
+    </div>
   </section>
 
   <section class="sides">
@@ -170,5 +187,12 @@
     gap: 12px;
     padding: 14px 0;
     border-top: 1px solid var(--line);
+  }
+  .into {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
   }
 </style>
