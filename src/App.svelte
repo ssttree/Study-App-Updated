@@ -23,6 +23,7 @@
   import AtarImport from './screens/AtarImport.svelte';
   import WriteQuestion from './screens/WriteQuestion.svelte';
   import QuestionsImport from './screens/QuestionsImport.svelte';
+  import Duplicates from './screens/Duplicates.svelte';
   import PlanEditor from './screens/PlanEditor.svelte';
   import PracticeRun from './screens/PracticeRun.svelte';
   import Planner from './screens/Planner.svelte';
@@ -43,7 +44,7 @@
   const tabs = [
     { label: 'Today', link: href('today'), match: ['today'] },
     { label: 'Cards', link: href('decks'), match: ['decks', 'deck', 'card', 'newCard', 'custom', 'import'] },
-    { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'writeQuestion', 'questionsImport', 'plans', 'plan'] },
+    { label: 'Practice', link: href('practice'), match: ['practice', 'skills', 'skill', 'pdfImport', 'atarImport', 'writeQuestion', 'questionsImport', 'duplicates', 'plans', 'plan'] },
     { label: 'Planner', link: href('planner'), match: ['planner', 'homework', 'task', 'windows', 'exams', 'examUpload', 'connect', 'plan:planner'] },
     { label: 'Progress', link: href('progress'), match: ['progress', 'progressSubject', 'progressTopic', 'activity', 'marks', 'marksImport', 'mark'] },
   ];
@@ -172,6 +173,8 @@
       <WriteQuestion subject={route.subject} />
     {:else if route.name === 'questionsImport'}
       <QuestionsImport />
+    {:else if route.name === 'duplicates'}
+      <Duplicates />
     {:else if route.name === 'plan'}
       <PlanEditor id={route.id} from={route.from} />
     {:else if route.name === 'planner'}

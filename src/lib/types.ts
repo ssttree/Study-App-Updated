@@ -98,6 +98,8 @@ export interface Settings {
   problemMinutes: number;
   /** Textbook question levels to practise. Missing means all of them. */
   levels?: ProblemLevel[];
+  /** Pairs of questions you said are not the same ("idA|idB"), so Find duplicates stops showing them. */
+  notDuplicates?: string[];
   lastBackupAt?: number;
 }
 

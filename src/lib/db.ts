@@ -345,6 +345,27 @@ export async function deleteProblem(id: string): Promise<void> {
   await tx.done;
 }
 
+/**
+ * Keeps one copy of a duplicated question and deletes the others. Your goes
+ * at the deleted copies move to the one you keep, so no history is lost.
+ */
+export async function mergeProblems(keepId: string, dropIds: string[]): Promise<void> {
+  const database = await db();
+  const tx = database.transaction(['problems', 'attempts', 'images'], 'readwrite');
+  const keep = await tx.objectStore('problems').get(keepId);
+  if (!keep) throw new Error('That question no longer exists.');
+  for (const id of dropIds) {
+    if (id === keepId) continue;
+    const p = await tx.objectStore('problems').get(id);
+    if (!p) continue;
+    for (const a of await tx.objectStore('attempts').index('problemId').getAll(id)) {
+      await tx.objectStore('attempts').put({ ...a, problemId: keepId, skillId: keep.skillId });
+    }
+    await deleteProblemInTx(storesOf(tx), p);
+  }
+  await tx.done;
+}
+
 type ProblemStores = {
   problems: { delete(key: string): Promise<void> };
   attempts: { index(name: 'problemId'): { getAllKeys(query: string): Promise<string[]> }; delete(key: string): Promise<void> };
