@@ -1,7 +1,8 @@
 // Saves imported questions: finds or makes the skill, stores the pictures
 // and skips questions that are already in the app.
 
-import { addPractice, listSkills, newId, problemKeys } from '../db';
+import { addPractice, listProblems, listSkills, newId, problemKeys } from '../db';
+import { normaliseQuestion } from './duplicates';
 import type { Problem, ProblemLevel, ProblemSource, Skill, StoredImage } from '../types';
 import { newSkill } from './mix';
 import { STARTER_SKILLS } from './subjects';
@@ -105,6 +106,10 @@ export async function saveProblems(
   toSave.push(skill);
 
   const keys = await problemKeys();
+  // The same typed question with different spacing or formatting counts as already there.
+  const wordings = new Set(
+    (await listProblems(skill.id)).filter((p) => p.questionText).map((p) => normaliseQuestion(p.questionText!)),
+  );
   const problems: Problem[] = [];
   const images: StoredImage[] = [];
   let skipped = 0;
@@ -115,7 +120,13 @@ export async function saveProblems(
       skipped++;
       continue;
     }
+    const wording = d.questionText?.trim() ? normaliseQuestion(d.questionText) : '';
+    if (wording && wordings.has(wording)) {
+      skipped++;
+      continue;
+    }
     keys.add(key);
+    if (wording) wordings.add(wording);
     let questionImage = '';
     if (d.question?.data) {
       const q: StoredImage = { id: newId(), ...d.question };

@@ -177,6 +177,9 @@
           <a class="btn" href={href('practice', 'write')}>Type a question</a>
           <a class="btn" href={href('practice', 'file')}>Questions file from Claude</a>
         </div>
+        <p class="muted small">
+          Same question in twice? <a href={href('practice', 'duplicates')}>Find duplicate questions</a>
+        </p>
       </section>
       {/if}
     {/if}

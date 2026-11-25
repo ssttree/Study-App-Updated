@@ -22,6 +22,7 @@ export type Route =
   | { name: 'atarImport'; taskId?: string }
   | { name: 'writeQuestion'; subject?: string }
   | { name: 'questionsImport' }
+  | { name: 'duplicates' }
   | { name: 'plans' }
   | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
@@ -100,6 +101,8 @@ function practiceRoute(rest: string[]): Route {
       return { name: 'writeQuestion', subject: more[0] };
     case 'file':
       return { name: 'questionsImport' };
+    case 'duplicates':
+      return { name: 'duplicates' };
     case 'plans':
       return { name: 'plans' };
     case 'plan':
