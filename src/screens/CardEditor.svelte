@@ -8,7 +8,29 @@
   import { go, href } from '../lib/router.svelte';
   import type { Card, Deck } from '../lib/types';
 
-  let { cardId, deckId }: { cardId?: string; deckId?: string } = $props();
+  let {
+    cardId,
+    deckId,
+    onclose,
+  }: {
+    cardId?: string;
+    deckId?: string;
+    /** Given when the editor opens over a review: it closes in place instead of going to the deck. */
+    onclose?: (result: { saved?: Card; deleted?: boolean }) => void;
+  } = $props();
+
+  const inDialog = $derived(!!onclose);
+  let dialog = $state<HTMLDialogElement | null>(null);
+  let closing = false;
+  $effect(() => {
+    if (dialog && !dialog.open) dialog.showModal();
+  });
+  function finish(result: { saved?: Card; deleted?: boolean }) {
+    if (closing) return;
+    closing = true;
+    dialog?.close();
+    onclose?.(result);
+  }
 
   let decks = $state<Deck[]>([]);
   let card = $state<Card | null | undefined>(undefined);
@@ -53,6 +75,10 @@
       answer: card.answer?.trim() || undefined,
     };
     await saveCard(toSave);
+    if (onclose && !addAnother) {
+      finish({ saved: toSave });
+      return;
+    }
     if (addAnother) {
       // Keep deck, topic, tags and settings for the next card, clear the text.
       const next = blankCard(toSave.deckId);
@@ -69,7 +95,8 @@
     if (!card || isNew) return;
     if (!confirm('Delete this card and its review history?')) return;
     await deleteCard(card.id);
-    go('decks', card.deckId);
+    if (onclose) finish({ deleted: true });
+    else go('decks', card.deckId);
   }
 
   async function pickImage(e: Event, side: 'front' | 'back' = 'front') {
@@ -92,7 +119,7 @@
 
 <svelte:window {onkeydown} />
 
-<main class="page wide">
+{#snippet body()}
   {#if card === null}
     {#if decks.length === 0}
       <h1>Make a deck first</h1>
@@ -104,8 +131,9 @@
   {:else if card}
     <section class="head">
       <div>
-        <a class="back" href={href('decks', card.deckId)}>← {deck?.name ?? 'Deck'}</a>
+        {#if !inDialog}<a class="back" href={href('decks', card.deckId)}>← {deck?.name ?? 'Deck'}</a>{/if}
         <h1>{isNew ? 'New card' : 'Edit card'}</h1>
+        {#if inDialog}<p class="muted small-note">Save to carry on reviewing from this card.</p>{/if}
         {#if savedNote && isNew}<p class="saved mono">{savedNote}</p>{/if}
       </div>
     </section>
@@ -224,14 +252,49 @@
         <button class="btn" onclick={() => save(false)} disabled={!canSave}>Save and close</button>
       {:else}
         <button class="btn primary" onclick={() => save(false)} disabled={!canSave}>Save</button>
-        <a class="btn" href={href('decks', card.deckId)}>Cancel</a>
+        {#if inDialog}
+          <button class="btn" onclick={() => finish({})}>Cancel</button>
+        {:else}
+          <a class="btn" href={href('decks', card.deckId)}>Cancel</a>
+        {/if}
         <button class="btn danger" onclick={remove}>Delete card</button>
       {/if}
     </section>
   {/if}
-</main>
+{/snippet}
+
+{#if inDialog}
+  <dialog bind:this={dialog} class="card-dialog" aria-label="Edit card" onclose={() => finish({})}>
+    {@render body()}
+  </dialog>
+{:else}
+  <main class="page wide">
+    {@render body()}
+  </main>
+{/if}
 
 <style>
+  .card-dialog {
+    width: min(1100px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    padding: 24px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .card-dialog::backdrop {
+    background: rgb(0 0 0 / 55%);
+  }
+  .card-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  .small-note {
+    font-size: 14px;
+    margin: 6px 0 0;
+  }
   .back {
     display: inline-flex;
     min-height: 36px;

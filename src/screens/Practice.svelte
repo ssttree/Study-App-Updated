@@ -179,6 +179,7 @@
         </div>
         <p class="muted small">
           Same question in twice? <a href={href('practice', 'duplicates')}>Find duplicate questions</a>
+          · {#if data.problems.some((p) => p.flag)}<a class="flagged-link" href={href('practice', 'flagged')}>⚑ {data.problems.filter((p) => p.flag).length} flagged to fix</a>{:else}<a href={href('practice', 'flagged')}>Flagged questions</a>{/if}
         </p>
       </section>
       {/if}
@@ -206,6 +207,9 @@
 </main>
 
 <style>
+  .flagged-link {
+    color: var(--warn);
+  }
   .hero {
     display: flex;
     flex-direction: column;

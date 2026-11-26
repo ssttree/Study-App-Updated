@@ -1,7 +1,17 @@
 // Hand-made calendar events and the reusable blocks you drag in for sessions
 // you plan again and again. Kept free of the screen so it can be tested.
 
-import type { Availability, BlockTemplate, PlanItem, StudyPick } from '../types';
+import type { Availability, BlockTemplate, PlanItem, SessionType, StudyPick } from '../types';
+
+export const SESSION_TYPES: { value: SessionType; label: string; help: string }[] = [
+  { value: 'apply', label: 'Apply', help: 'Learning or figuring out a skill and how to use it in different situations' },
+  { value: 'practice', label: 'Practice', help: 'Going over a skill you already know, for repetition' },
+];
+
+/** A session type kept only when it is one of the two. */
+export function cleanSession(s: unknown): SessionType | undefined {
+  return s === 'apply' || s === 'practice' ? s : undefined;
+}
 
 /** A pick with empty lists and repeats taken out, or undefined when nothing is left. */
 export function cleanPick(p: StudyPick | undefined): StudyPick | undefined {
@@ -20,7 +30,7 @@ export function cleanMinutes(m: number, fallback = 30): number {
   return Number.isFinite(n) && n > 0 ? Math.min(12 * 60, Math.max(5, n)) : fallback;
 }
 
-export type EventFields = Pick<PlanItem, 'start' | 'minutes' | 'title' | 'study' | 'blockId'>;
+export type EventFields = Pick<PlanItem, 'start' | 'minutes' | 'title' | 'study' | 'blockId' | 'session'>;
 
 /** The plan item for an event you add by hand (or drag in from a block). */
 export function eventItem(f: EventFields): Omit<PlanItem, 'id' | 'windowId' | 'pinned' | 'status'> {
@@ -33,12 +43,14 @@ export function eventItem(f: EventFields): Omit<PlanItem, 'id' | 'windowId' | 'p
   const study = cleanPick(f.study);
   if (study) out.study = study;
   if (f.blockId) out.blockId = f.blockId;
+  const session = cleanSession(f.session);
+  if (session) out.session = session;
   return out;
 }
 
 /** What dragging a block onto `start` (HH:MM) makes. Later edits to the block leave it alone. */
 export function blockItem(b: BlockTemplate, start: string): Omit<PlanItem, 'id' | 'windowId' | 'pinned' | 'status'> {
-  return eventItem({ start, minutes: b.minutes, title: b.name, study: b.study, blockId: b.id });
+  return eventItem({ start, minutes: b.minutes, title: b.name, study: b.study, blockId: b.id, session: b.session });
 }
 
 export function blocksOf(a: Availability): BlockTemplate[] {
@@ -50,6 +62,8 @@ export function withBlock(a: Availability, b: BlockTemplate): Availability {
   const clean: BlockTemplate = { id: b.id, name: b.name.trim() || 'Study block', minutes: cleanMinutes(b.minutes) };
   const study = cleanPick(b.study);
   if (study) clean.study = study;
+  const session = cleanSession(b.session);
+  if (session) clean.session = session;
   const list = blocksOf(a);
   const blocks = list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? clean : x)) : [...list, clean];
   return { ...a, blocks };
@@ -65,6 +79,8 @@ export interface ItemChanges {
   minutes?: number;
   start?: string;
   study?: StudyPick | undefined;
+  /** Apply or Practice. Given as undefined clears it. */
+  session?: SessionType | undefined;
   /** Opened from the window, so a rebuild leaves it alone. */
   started?: boolean;
 }
@@ -79,6 +95,11 @@ export function changedItem(item: PlanItem, c: ItemChanges): PlanItem {
     const study = cleanPick(c.study);
     if (study) out.study = study;
     else delete out.study;
+  }
+  if ('session' in c) {
+    const session = cleanSession(c.session);
+    if (session) out.session = session;
+    else delete out.session;
   }
   return out;
 }

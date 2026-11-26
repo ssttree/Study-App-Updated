@@ -25,6 +25,7 @@ import {
   type Mark,
   type WeeklyReview,
   type Fix,
+  type SourcePdf,
 } from './types';
 
 interface StudyDB extends DBSchema {
@@ -46,10 +47,11 @@ interface StudyDB extends DBSchema {
   marks: { key: string; value: Mark };
   weeklyReviews: { key: string; value: WeeklyReview };
   fixes: { key: string; value: Fix };
+  sourcePdfs: { key: string; value: SourcePdf };
 }
 
 export const DB_NAME = 'study-app';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbPromise: Promise<IDBPDatabase<StudyDB>> | null = null;
 
@@ -91,6 +93,10 @@ export function db(): Promise<IDBPDatabase<StudyDB>> {
       if (oldVersion < 5) {
         // The list of app fixes noticed while using it.
         database.createObjectStore('fixes', { keyPath: 'id' });
+      }
+      if (oldVersion < 6) {
+        // Imported PDFs, kept on this device only, so a question can open the page it came from.
+        database.createObjectStore('sourcePdfs', { keyPath: 'name' });
       }
     },
     // A newer version of the app opened in another tab: step aside so it can upgrade.
@@ -320,6 +326,32 @@ export async function getProblem(id: string): Promise<Problem | undefined> {
 
 export async function saveProblem(problem: Problem): Promise<void> {
   await (await db()).put('problems', problem);
+}
+
+/** Flags a question as not captured properly, or clears the flag (note null). */
+export async function flagProblem(id: string, note: string | null, now = Date.now()): Promise<Problem | undefined> {
+  const database = await db();
+  const found = await database.get('problems', id);
+  if (!found) return undefined;
+  const changed: Problem = { ...found };
+  if (note === null) delete changed.flag;
+  else changed.flag = { note: note.trim(), at: found.flag?.at ?? now };
+  await database.put('problems', changed);
+  return changed;
+}
+
+// Source PDFs: kept on this device only (never synced or backed up, they are big).
+
+export async function keepSourcePdf(file: File, now = Date.now()): Promise<void> {
+  try {
+    await (await db()).put('sourcePdfs', { name: file.name, data: file, size: file.size, saved: now });
+  } catch {
+    // Out of space: the questions still save, the original just can't be opened from them.
+  }
+}
+
+export async function getSourcePdf(name: string): Promise<SourcePdf | undefined> {
+  return (await db()).get('sourcePdfs', name);
 }
 
 /** Saves fixed questions with their new pictures, and drops the pictures they no longer use, all in one go. */

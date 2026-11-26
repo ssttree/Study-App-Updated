@@ -37,6 +37,8 @@
   import type { Availability, BlockTemplate, PlanItem, StudyWindow, Task, WeeklyReview } from '../lib/types';
   import EventDialog, { type EventTarget } from '../components/EventDialog.svelte';
   import { blockItem, blocksOf } from '../lib/planner/blocks';
+  import { waitingForTick, weekSessions } from '../lib/planner/sessions';
+  import { celebrate } from '../lib/celebrate';
 
   /** A date key: show that day in full instead of today. */
   let { day: dayProp }: { day?: string } = $props();
@@ -127,6 +129,39 @@
     if (item.status === 'done') return true;
     return item.kind === 'flashcards' && !!data && date === data.today && data.cardsLeft === 0 && data.logsToday.length > 0;
   }
+
+  // This week's sessions, for the counter. Days already gone use what was saved for them.
+  const week = $derived(
+    data
+      ? weekSessions(
+          data.today,
+          (d) => data!.days.find((x) => x.date === d)?.plan ?? data!.input.saved.get(d),
+          (it, d) => isDone(it, d),
+        )
+      : null,
+  );
+  /** Bumped on each tick so the counter replays its little pop. */
+  let bump = $state(0);
+  let cheer = $state('');
+  let cheerTimer: ReturnType<typeof setTimeout> | undefined;
+  const CHEERS = ['Nice work.', 'Another one done.', 'Keep the streak going.', 'That counts.', 'Routine building.'];
+
+  /** Ticks a session off with a burst of confetti and a bump on the week's counter. */
+  async function tickOff(day: BuiltDay, item: PlanItem, el?: Element | null) {
+    // Measured now: the box it was ticked in can be gone once the plan reloads.
+    const box = el?.getBoundingClientRect();
+    await act(() => completeItem(day, item, data!.tasks));
+    cheered(box);
+  }
+  function cheered(box?: DOMRect) {
+    celebrate(box);
+    bump += 1;
+    const n = week?.done ?? 0;
+    cheer = `${CHEERS[n % CHEERS.length]} ${plural(n, 'session')} done this week.`;
+    clearTimeout(cheerTimer);
+    cheerTimer = setTimeout(() => (cheer = ''), 4000);
+  }
+  const waiting = $derived(today ? waitingForTick(today.plan) : []);
 
   /** The next thing: the first unfinished item in a window that hasn't ended yet, else anything left. */
   const next = $derived.by(() => {
@@ -664,6 +699,41 @@
       {/each}
     {/if}
 
+    {#if isToday}
+      {#each waiting as item (item.id)}
+        {@const text = itemText(item, tasks, assessments, data.today, names)}
+        <div class="notice tick-ask">
+          <span>Finished <strong>{text.title}</strong>{item.session ? ` (${item.session === 'apply' ? 'Apply' : 'Practice'})` : ''}? Tick it off to count it.</span>
+          <label class="big-tick">
+            <input type="checkbox" disabled={busy} onchange={(e) => tickOff(today!, item, e.currentTarget)} />
+            <span>Done</span>
+          </label>
+        </div>
+      {/each}
+    {/if}
+
+    {#if week && weekOffset === 0}
+      <section class="week-count" aria-live="polite">
+        {#key bump}
+          <div class="count-num" class:pop={bump > 0}>
+            {week.done}{#if bump > 0}<span class="plus">+1</span>{/if}
+          </div>
+        {/key}
+        <div class="count-text">
+          <strong>{week.done === 1 ? 'session' : 'sessions'} done this week</strong>
+          <span class="muted small">
+            {#if week.planned > week.done}{week.planned - week.done} more on the plan{:else if week.planned > 0}Everything planned is done{:else}Nothing planned yet{/if}{#if week.apply || week.practice}&nbsp;· {week.apply} Apply · {week.practice} Practice{/if}
+          </span>
+          {#if week.planned > 0}
+            <div class="count-bar" role="progressbar" aria-label="Sessions done this week" aria-valuemin={0} aria-valuemax={week.planned} aria-valuenow={week.done}>
+              <div class="count-fill" style:width="{Math.min(100, (week.done / week.planned) * 100)}%"></div>
+            </div>
+          {/if}
+        </div>
+        {#if cheer}<p class="cheer">{cheer}</p>{/if}
+      </section>
+    {/if}
+
     <div class="layout">
       <div class="main-col">
         <div class="view-bar">
@@ -851,7 +921,7 @@
 
 {#if dialogTarget && data}
   {#key dialogTarget}
-    <EventDialog target={dialogTarget} {data} {names} onclose={() => (dialogTarget = null)} onchanged={reload} />
+    <EventDialog target={dialogTarget} {data} {names} onclose={() => (dialogTarget = null)} onchanged={reload} ondone={() => cheered()} />
   {/key}
 {/if}
 
@@ -990,13 +1060,14 @@
       checked={done}
       disabled={busy || (item.kind === 'flashcards' && done && item.status !== 'done')}
       aria-label="Done: {text.title}"
-      onchange={() => act(() => (item.status === 'done' ? reopenItem(day, item, data!.tasks) : completeItem(day, item, data!.tasks)))}
+      onchange={(e) => (item.status === 'done' ? act(() => reopenItem(day, item, data!.tasks)) : tickOff(day, item, e.currentTarget))}
     />
     <button type="button" class="blk-main" onclick={() => openItem(day, item)} title="Open: choose what to study, change the time">
       <span class="blk-title">
         {text.title}
         {#if item.kind === 'homework' && item.taskId && (tasks.get(item.taskId)?.carryOvers ?? 0) > 0}<span class="tag">carried over</span>{/if}
         {#if item.optional}<span class="tag">optional</span>{/if}
+        {#if item.session}<span class="tag session {item.session}">{item.session === 'apply' ? 'Apply' : 'Practice'}</span>{/if}
       </span>
       <span class="mono small blk-time">{spanText(t)} · {item.minutes} min{tall && text.detail ? ` · ${text.detail}` : ''}</span>
     </button>
@@ -1027,9 +1098,9 @@
     draggable={item.status === 'todo' && day.date >= data!.today}
     ondragstart={(e) => dragStart(e, day, item)}
     ondragend={dragEnd}
-    title="{text.title} · {spanText(t)} · {item.minutes} min"
+    title="{text.title}{item.session ? ` (${item.session === 'apply' ? 'Apply' : 'Practice'})` : ''} · {spanText(t)} · {item.minutes} min"
   >
-    <span class="chip-text">{text.title}</span>
+    <span class="chip-text">{#if item.session}<span class="chip-session {item.session}">{item.session === 'apply' ? 'A' : 'P'}</span>{/if}{text.title}</span>
   </button>
 {/snippet}
 
@@ -1090,7 +1161,7 @@
               <input class="mini" type="time" step="900" aria-label="Put it at" onchange={(e) => setStart(day, item, e)} />
               <button class="btn small" onclick={() => act(() => removeItem(day, item))}>Take off</button>
             {/if}
-            <button class="btn small" onclick={() => act(() => completeItem(day, item, data!.tasks))}>Done</button>
+            <button class="btn small" onclick={(e) => tickOff(day, item, e.currentTarget)}>Done</button>
             {#if itemLink(item, tasks)}<a class="btn small primary" href={itemLink(item, tasks)} onclick={() => startLink(day, item)}>Start</a>{/if}
           {/if}
         </div>
@@ -1100,6 +1171,133 @@
 {/snippet}
 
 <style>
+  .week-count {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px 20px;
+    padding: 16px 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+  .count-num {
+    position: relative;
+    min-width: 64px;
+    font-family: var(--mono);
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--good);
+    text-align: center;
+  }
+  .count-num.pop {
+    animation: count-pop 600ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  .plus {
+    position: absolute;
+    top: -22px;
+    right: 0;
+    font-size: 16px;
+    color: var(--accent);
+    opacity: 0;
+    animation: plus-up 1100ms ease-out;
+  }
+  .count-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .count-bar {
+    height: 8px;
+    border-radius: 99px;
+    background: var(--line);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .count-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--good);
+    transition: width 600ms cubic-bezier(0.3, 1.3, 0.5, 1);
+  }
+  .cheer {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--good);
+    font-weight: 700;
+    animation: cheer-in 400ms ease-out;
+  }
+  @keyframes count-pop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.45); }
+    100% { transform: scale(1); }
+  }
+  @keyframes plus-up {
+    0% { opacity: 0; transform: translateY(6px); }
+    25% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-22px); }
+  }
+  @keyframes cheer-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  .tick-ask {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .big-tick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .big-tick input {
+    width: 24px;
+    height: 24px;
+    accent-color: var(--good);
+    cursor: pointer;
+  }
+  .tag.session.apply,
+  .chip-session.apply {
+    color: var(--info);
+    border-color: color-mix(in srgb, var(--info) 50%, transparent);
+  }
+  .tag.session.practice,
+  .chip-session.practice {
+    color: var(--good);
+    border-color: color-mix(in srgb, var(--good) 50%, transparent);
+  }
+  .chip-session {
+    font-family: var(--mono);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+  .tick:checked {
+    animation: tick-pop 450ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  @keyframes tick-pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.5); }
+    100% { transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .count-num.pop,
+    .plus,
+    .cheer,
+    .tick:checked {
+      animation: none;
+    }
+    .count-fill {
+      transition: none;
+    }
+  }
   .hero {
     display: flex;
     flex-direction: column;
