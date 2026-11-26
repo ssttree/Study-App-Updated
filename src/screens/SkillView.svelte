@@ -1,6 +1,7 @@
 <script lang="ts">
   import ProblemView from '../components/ProblemView.svelte';
   import ProblemEditor from '../components/ProblemEditor.svelte';
+  import FlagDialog from '../components/FlagDialog.svelte';
   import { copiesOf } from '../lib/practice/edit';
   import { practiceStyle } from '../lib/practice/subjects';
   import LevelBadge from '../components/LevelBadge.svelte';
@@ -25,6 +26,7 @@
   let saved = $state(false);
   /** The question open in the editor. */
   let editing = $state.raw<Problem | null>(null);
+  let flagging = $state.raw<Problem | null>(null);
 
   async function load() {
     data = await loadPractice();
@@ -226,6 +228,7 @@
                 <span class="sr-only">Tick {p.label}</span>
               </label>
               <span class="mono small nowrap">{p.label || 'Question'}</span>
+              {#if p.flag}<span class="flag-tag small" title={p.flag.note || 'Flagged to fix'}>⚑ flagged</span>{/if}
               <span class="mono muted small grow">
                 {#if p.level}<LevelBadge level={p.level} />{/if}
                 {p.mc ? 'MC' : ''}{p.mc && p.answerLetter ? ' ' + p.answerLetter : ''}
@@ -260,6 +263,7 @@
               {/if}
               <span class="q-buttons">
                 <button class="btn small" onclick={() => (editing = p)}>Edit</button>
+                <button class="btn small" onclick={() => (flagging = p)}>{p.flag ? 'Flagged' : 'Flag'}</button>
                 <button class="btn small danger" onclick={() => removeProblem(p)}>Delete</button>
               </span>
             </div>
@@ -291,7 +295,15 @@
   />
 {/if}
 
+{#if flagging}
+  <FlagDialog problem={flagging} onsaved={() => load()} onclose={() => (flagging = null)} />
+{/if}
+
 <style>
+  .flag-tag {
+    color: var(--warn);
+    white-space: nowrap;
+  }
   .head {
     display: flex;
     flex-direction: column;

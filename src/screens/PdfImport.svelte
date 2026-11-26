@@ -4,7 +4,7 @@
   import Snipper from '../components/Snipper.svelte';
   import LevelBadge from '../components/LevelBadge.svelte';
   import { LEVELS } from '../lib/practice/mix';
-  import { getTask, listSkills, problemSkillsByKey, saveTask } from '../lib/db';
+  import { getTask, keepSourcePdf, listSkills, problemSkillsByKey, saveTask } from '../lib/db';
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
   import { allKnown, choiceFor, findSkill, groupBySkill, saveProblems, type SaveResult } from '../lib/practice/save';
@@ -70,9 +70,13 @@
   let known = new Map<string, string>();
   problemSkillsByKey().then((m) => (known = m));
 
+  /** The PDFs picked, by name: each one is kept on this device once its questions are saved. */
+  const pickedFiles = new Map<string, File>();
+
   async function openFiles(files: File[]) {
     error = '';
     const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    for (const f of pdfs) pickedFiles.set(f.name, f);
     if (!pdfs.length) {
       error = 'Pick one or more PDF files.';
       return;
@@ -170,7 +174,10 @@
     sheet.lastPage[f.part] = page;
     if (f.index >= 0) {
       const pair = sheet.pairs[f.index];
-      if (f.part === 'question') pair.question = picture;
+      if (f.part === 'question') {
+        pair.question = picture;
+        pair.page = page + 1;
+      }
       else pair.solution = picture;
       pair.include = true;
       pair.problems = pair.problems.filter((p) => (f.part === 'question' ? !/^Question|^No question/.test(p) : !/solution/i.test(p)));
@@ -197,6 +204,7 @@
       mc: false,
       key: `snip:${sheet.fileName}:${sheet.pendingQuestion.data.length}:${sheet.pendingQuestion.data.slice(-40)}`,
       question: sheet.pendingQuestion,
+      page: sheet.lastPage.question + 1,
       solution,
       problems: [],
       include: true,
@@ -238,10 +246,17 @@
             group,
             s.analysed.textbook ? 'textbook' : s.analysed.smarterEd ? 'smartered' : 'snip',
             s.analysed.textbook ? s.analysed.sheet.topic : s.analysed.smarterEd ? s.name || s.fileName : s.fileName.replace(/\.pdf$/i, ''),
+            Date.now(),
+            s.fileName,
           );
           out.push({ fileName: s.fileName, result });
         }
         skills = await listSkills();
+      }
+      // Keep each PDF on this device, so a question can open the page it came from later.
+      for (const name of new Set(out.map((r) => r.fileName))) {
+        const file = pickedFiles.get(name);
+        if (file) await keepSourcePdf(file);
       }
       destroyAll();
       // Homework: link the set to every worksheet's skill. An optional set just joins the skill pool.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import MathText from '../components/MathText.svelte';
+  import CardEditor from './CardEditor.svelte';
   import { recordReview } from '../lib/db';
   import { effectiveTyping } from '../lib/cards';
   import { answerKey, checkAnswer, prettyChem } from '../lib/answers';
@@ -12,7 +13,7 @@
   import { buildQueue, pickNext, summarise, LEARN_AHEAD_MS, type QueueItem } from '../lib/queue';
   import { formatInterval, makeScheduler, previewIntervals, rate, RATINGS, stateFor, type RatingValue } from '../lib/scheduler';
   import { href } from '../lib/router.svelte';
-  import type { Deck, Settings } from '../lib/types';
+  import type { Card, Deck, Settings } from '../lib/types';
   import type { FSRS } from 'ts-fsrs';
 
   // With customParts this is a custom study session: practice only, the schedule is left alone.
@@ -43,7 +44,43 @@
   let saving = $state(false);
   let waitUntil = $state<number | null>(null);
   let filterLabel = $state('All subjects');
-  let typeInput = $state<HTMLInputElement | null>(null);
+  let typeInput = $state<HTMLTextAreaElement | null>(null);
+  /** The card open in the editor over the review, so the session carries on after saving. */
+  let editingId = $state<string | null>(null);
+
+  // The answer box grows onto new lines as you type instead of scrolling sideways.
+  function fitTypeBox() {
+    if (!typeInput) return;
+    typeInput.style.height = 'auto';
+    typeInput.style.height = `${typeInput.scrollHeight + 2}px`;
+  }
+  $effect(() => {
+    void typed;
+    fitTypeBox();
+  });
+
+  function edited(result: { saved?: Card; deleted?: boolean }) {
+    const id = editingId;
+    editingId = null;
+    if (!id) return;
+    if (result.deleted) {
+      queue = queue.filter((q) => q.card.id !== id);
+      advance();
+      return;
+    }
+    const saved = result.saved;
+    if (!saved) return;
+    // Swap the new version in everywhere it waits. A card made one way only loses its reverse turn.
+    const fresh = (q: QueueItem): QueueItem => (q.card.id === id ? { ...q, card: { ...q.card, ...saved, fsrs: q.card.fsrs, fsrsReverse: q.card.fsrsReverse } } : q);
+    const keep = (q: QueueItem) => !(q.card.id === id && q.direction === 'reverse' && saved.type !== 'reversed');
+    const wasCurrent = current;
+    queue = queue.filter(keep).map(fresh);
+    if (wasCurrent && wasCurrent.card.id === id) {
+      const still = queue.find((q) => q.card.id === id && q.direction === wasCurrent.direction && q.due === wasCurrent.due);
+      if (still) current = still;
+      else advance();
+    }
+  }
 
   function readTypingPref(): boolean {
     try {
@@ -170,11 +207,12 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (!current || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!current || editingId || e.ctrlKey || e.metaKey || e.altKey) return;
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     if (!revealed) {
       if (inField) {
-        if (e.key === 'Enter') {
+        // Enter shows the answer, Shift+Enter starts a new line.
+        if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           reveal();
         }
@@ -236,7 +274,7 @@
           <span class="badges">
             {#if current.isNew}<span class="badge new">new</span>{/if}
             {#if current.direction === 'reverse'}<span class="badge">reverse</span>{/if}
-            <a class="edit" href={href('card', current.card.id)} title="Edit this card">edit</a>
+            <button class="edit" onclick={() => (editingId = current!.card.id)} title="Fix this card, then carry on from here">edit</button>
           </span>
         </div>
 
@@ -248,14 +286,14 @@
         {#if typingActive && !revealed}
           <label class="type-box">
             <span class="sr-only">Type your answer</span>
-            <input
+            <textarea
               bind:this={typeInput}
               bind:value={typed}
-              type="text"
+              rows="1"
               autocomplete="off"
               spellcheck="false"
-              placeholder="Type your answer, then press Enter"
-            />
+              placeholder="Type your answer, then press Enter (Shift+Enter for a new line)"
+            ></textarea>
           </label>
           {#if typed.trim()}
             <p class="shows-as muted">Shows as <span class="chem">{@html prettyChem(typed)}</span></p>
@@ -351,6 +389,10 @@
     {/if}
   </main>
 </div>
+
+{#if editingId}
+  <CardEditor cardId={editingId} onclose={edited} />
+{/if}
 
 <style>
   .review {
@@ -453,6 +495,11 @@
   .edit {
     color: var(--dim);
     text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
   }
   .edit:hover {
     color: var(--accent);
@@ -471,10 +518,17 @@
   .answer {
     color: var(--answer);
   }
-  .type-box input {
+  .type-box textarea {
+    display: block;
+    width: 100%;
     font-size: 18px;
     text-align: center;
     min-height: 52px;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .compare .yours {
     display: flex;
@@ -504,6 +558,8 @@
   .typed {
     margin: 0;
     font-size: 20px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .shows-as,
   .type-tip {

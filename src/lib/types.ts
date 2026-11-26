@@ -173,6 +173,19 @@ export interface Problem {
   /** Position in the worksheet, to keep the original order. */
   order: number;
   created: number;
+  /** The PDF it was cut from and the page it starts on (1 is the first), for fixing the crop by hand. */
+  origin?: { file: string; page?: number };
+  /** Marked as not captured properly (bad crop, missing part), to find and fix later. */
+  flag?: { note: string; at: number };
+}
+
+/** A PDF kept on this device after an import, so a question can open the page it came from. Not synced. */
+export interface SourcePdf {
+  /** The file name, e.g. "Ext 1 Ch 02 Vectors.pdf". */
+  name: string;
+  data: Blob;
+  size: number;
+  saved: number;
 }
 
 export type MethodChoice = 'yes' | 'partly' | 'no';
@@ -364,12 +377,20 @@ export interface StudyPick {
   deckIds?: string[];
 }
 
+/**
+ * What kind of study session a block is.
+ * apply: learning or figuring out a skill and how to use it in different situations.
+ * practice: going over a skill you already know, for repetition.
+ */
+export type SessionType = 'apply' | 'practice';
+
 /** A reusable block, like "Chem flashcards, 30 min". Dragging it in makes an event. */
 export interface BlockTemplate {
   id: string;
   name: string;
   minutes: number;
   study?: StudyPick;
+  session?: SessionType;
 }
 
 /** event: something you added by hand or dragged in from one of your blocks. */
@@ -400,6 +421,8 @@ export interface PlanItem {
   study?: StudyPick;
   /** The block it was dragged in from, if any. */
   blockId?: string;
+  /** Apply (learning a skill) or Practice (repetition). Missing means not chosen. */
+  session?: SessionType;
 }
 
 export interface DayPlan {

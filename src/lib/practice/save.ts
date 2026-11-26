@@ -27,6 +27,8 @@ export interface DraftProblem {
   level?: ProblemLevel;
   /** Identifies the question so importing the same sheet twice adds nothing. */
   key: string;
+  /** Page of the PDF the question starts on (1 is the first), when known. */
+  page?: number;
 }
 
 /** Either an existing skill's id or the details for a new one. */
@@ -77,6 +79,8 @@ export async function saveProblems(
   source: ProblemSource,
   from: string,
   now = Date.now(),
+  /** The PDF the questions were cut from, if any. */
+  file?: string,
 ): Promise<SaveResult> {
   const skills = await listSkills();
   let skill: Skill;
@@ -156,6 +160,7 @@ export async function saveProblems(
       solutionText: d.solutionText?.trim() || undefined,
       order: order++,
       created: now,
+      ...(file ? { origin: d.page ? { file, page: d.page } : { file } } : {}),
     });
   }
   await addPractice(toSave, problems, images);

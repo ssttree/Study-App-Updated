@@ -5,6 +5,7 @@
   import { untrack } from 'svelte';
   import MathText from './MathText.svelte';
   import ProblemImage from './ProblemImage.svelte';
+  import OriginalLink from './OriginalLink.svelte';
   import { getImage, newId, updateProblems } from '../lib/db';
   import { imageToDataUrl } from '../lib/images';
   import { applyEdit, editForCopy, editFor, editProblemError, type ProblemPart } from '../lib/practice/edit';
@@ -51,6 +52,8 @@
   let sides = $state<Record<Side, SideState>>({ question: sideState(start.question), solution: sideState(start.solution) });
   let active = $state<Side>('question');
   let alsoCopies = $state(true);
+  /** A flagged question being fixed: take the flag off when it saves. */
+  let unflag = $state(true);
   let saving = $state(false);
   let error = $state('');
   let dialog = $state<HTMLDialogElement | null>(null);
@@ -100,6 +103,7 @@
     error = '';
     try {
       const mine = applyEdit(problem, edit, newId);
+      if (problem.flag && unflag) delete mine.problem.flag;
       const changes = [mine];
       if (alsoCopies) {
         const load = async (id: string) => {
@@ -202,6 +206,12 @@
       </div>
     </div>
 
+    <div class="origin">
+      {#if problem.flag}<span class="flag-note small">⚑ Flagged{problem.flag.note ? `: ${problem.flag.note}` : ''}</span>{/if}
+      <OriginalLink {problem} />
+      <span class="muted small">Screenshot the right part of the page, then paste it below with Ctrl + V.</span>
+    </div>
+
     <div class="sides">
       {@render sideEditor('question', 'Question')}
       {@render sideEditor('solution', answerName)}
@@ -211,6 +221,13 @@
       <label class="check copies">
         <input type="checkbox" bind:checked={alsoCopies} />
         Fix the copy in {copies.length === 1 ? 'the other skill' : `the ${copies.length} other skills`} too ({copyNames})
+      </label>
+    {/if}
+
+    {#if problem.flag}
+      <label class="check">
+        <input type="checkbox" bind:checked={unflag} />
+        Fixed: take the flag off when this saves
       </label>
     {/if}
 
@@ -224,6 +241,15 @@
 </dialog>
 
 <style>
+  .origin {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .flag-note {
+    color: var(--warn);
+  }
   .editor {
     width: min(1000px, calc(100vw - 32px));
     max-height: calc(100vh - 32px);

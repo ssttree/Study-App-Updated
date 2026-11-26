@@ -93,6 +93,7 @@ function makePair(question: Entry, solution: Entry | undefined, q: Picture | nul
     solution: s,
     problems,
     include: !!q,
+    page: question.regions[0] ? question.regions[0].page + 1 : undefined,
   };
 }
 
@@ -228,6 +229,7 @@ function makeBookPair(
     include: !!picture,
     level: level ?? undefined,
     answerLetter: letter ?? undefined,
+    page: q.regions[0] ? q.regions[0].page + 1 : undefined,
     // The short answer first, then the worked solution under it when the PDF has one.
     answerRegions: answer || worked ? [...(answer?.regions ?? []), ...(worked?.regions ?? [])] : undefined,
   };

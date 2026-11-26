@@ -1,6 +1,7 @@
 <script lang="ts">
   import ProblemView from '../components/ProblemView.svelte';
   import ProblemEditor from '../components/ProblemEditor.svelte';
+  import FlagDialog from '../components/FlagDialog.svelte';
   import { copiesOf } from '../lib/practice/edit';
   import { getTask, recordAttempt } from '../lib/db';
   import { plural } from '../lib/load';
@@ -54,6 +55,7 @@
   /** Every saved question and skill, including levels left out of this block, to find copies of a question you fix. */
   let everything = $state.raw<PracticeCollection | null>(null);
   let editing = $state(false);
+  let flagging = $state(false);
 
   $effect(() => {
     const t = setInterval(() => (now = Date.now()), 1000);
@@ -195,7 +197,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (editing) return;
+    if (editing || flagging) return;
     const t = e.target as HTMLElement | null;
     if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
     if (!current) return;
@@ -292,6 +294,9 @@
             · {current.problem.level ? LEVEL_NAMES[current.problem.level] : plural(current.problem.marks, 'mark')}
           </span>
           <button class="btn small edit" onclick={() => (editing = true)} title="Fix this question, then carry on from here">Edit question</button>
+          <button class="btn small flag" class:flagged={!!current.problem.flag} onclick={() => (flagging = true)} title="Not captured properly? Flag it to fix later">
+            {current.problem.flag ? '⚑ Flagged' : '⚑ Flag'}
+          </button>
         </div>
 
         <ProblemView image={current.problem.questionImage} text={current.problem.questionText} alt="Question {index + 1}" />
@@ -395,6 +400,10 @@
     onsaved={edited}
     onclose={() => (editing = false)}
   />
+{/if}
+
+{#if flagging && current}
+  <FlagDialog problem={current.problem} onsaved={(p) => edited(p, [p])} onclose={() => (flagging = false)} />
 {/if}
 
 <style>
@@ -503,6 +512,10 @@
   }
   .q-head h1 {
     margin-right: auto;
+  }
+  .flag.flagged {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 55%, transparent);
   }
   h1 {
     font-size: 28px;

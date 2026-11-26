@@ -23,6 +23,7 @@ export type Route =
   | { name: 'writeQuestion'; subject?: string }
   | { name: 'questionsImport' }
   | { name: 'duplicates' }
+  | { name: 'flagged' }
   | { name: 'plans' }
   | { name: 'plan'; id: string; from?: 'planner' }
   | { name: 'practiceRun'; parts: string[] }
@@ -103,6 +104,8 @@ function practiceRoute(rest: string[]): Route {
       return { name: 'questionsImport' };
     case 'duplicates':
       return { name: 'duplicates' };
+    case 'flagged':
+      return { name: 'flagged' };
     case 'plans':
       return { name: 'plans' };
     case 'plan':

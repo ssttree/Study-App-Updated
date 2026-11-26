@@ -15,12 +15,12 @@
   // or changing one of your reusable blocks.
   import StudyPicker from './StudyPicker.svelte';
   import { completeItem, deleteBlock, placeItem, removeItem, reopenItem, saveBlock, updateItem } from '../lib/planner/actions';
-  import { changedItem, eventItem } from '../lib/planner/blocks';
+  import { changedItem, eventItem, SESSION_TYPES } from '../lib/planner/blocks';
   import { decksLink, hasPick, itemLink, itemText, skillsLink, type StudyNames } from '../lib/planner/labels';
   import { clockMinutes, clockText, dayLabel } from '../lib/planner/dates';
   import type { PlannerData } from '../lib/planner/load';
   import { newId } from '../lib/db';
-  import type { StudyPick } from '../lib/types';
+  import type { SessionType, StudyPick } from '../lib/types';
 
   let {
     target,
@@ -28,6 +28,7 @@
     names,
     onclose,
     onchanged,
+    ondone,
   }: {
     target: EventTarget;
     data: PlannerData;
@@ -35,6 +36,8 @@
     onclose: () => void;
     /** Something was saved: reload the planner. */
     onchanged: () => Promise<void> | void;
+    /** A session was ticked off here: the planner cheers. */
+    ondone?: () => void;
   } = $props();
 
   // The window is made fresh for each target, so the starting values are read once.
@@ -51,6 +54,7 @@
   let start = $state(t.mode === 'new' ? t.start : (item?.start ?? ''));
   let minutes = $state(t.mode === 'block' ? (t.block?.minutes ?? 30) : t.mode === 'new' ? (t.minutes ?? 30) : (item?.minutes ?? 30));
   let study = $state<StudyPick>(structuredClone((t.mode === 'block' ? t.block?.study : item?.study) ?? {}));
+  let session = $state<SessionType | undefined>(t.mode === 'block' ? t.block?.session : item?.session);
   let asBlock = $state(false);
   let saving = $state(false);
   let error = $state('');
@@ -72,14 +76,14 @@
     error = '';
     if (t.mode === 'block') {
       if (!title.trim()) return fail('Give the block a name.');
-      await saveBlock(data.availability, { id: t.block?.id ?? newId(), name: title, minutes, study });
+      await saveBlock(data.availability, { id: t.block?.id ?? newId(), name: title, minutes, study, session });
       return true;
     }
     if (t.mode === 'new') {
       if (!title.trim()) return fail('Give the event a name.');
       if (!date || date < data.today) return fail('Pick today or a later day.');
-      await placeItem(data.days, date, eventItem({ title, start: start || undefined, minutes, study }));
-      if (asBlock) await saveBlock(data.availability, { id: newId(), name: title, minutes, study });
+      await placeItem(data.days, date, eventItem({ title, start: start || undefined, minutes, study, session }));
+      if (asBlock) await saveBlock(data.availability, { id: newId(), name: title, minutes, study, session });
       return true;
     }
     if (item && t.mode === 'item') {
@@ -88,6 +92,7 @@
         minutes,
         start: start || undefined,
         study,
+        session,
         started,
       });
     }
@@ -96,7 +101,7 @@
   /** Ticks it off with what's in the window kept (one save, so nothing is lost). */
   async function markDone(it: PlanItem) {
     if (t.mode !== 'item') return;
-    const changed = changedItem(it, { title: it.kind === 'event' ? title : undefined, minutes, start: start || undefined, study });
+    const changed = changedItem(it, { title: it.kind === 'event' ? title : undefined, minutes, start: start || undefined, study, session });
     const day = { ...t.day, plan: { ...t.day.plan, items: t.day.plan.items.map((x) => (x.id === it.id ? changed : x)) } };
     await completeItem(day, changed, data.tasks);
   }
@@ -184,6 +189,25 @@
       </label>
     </div>
 
+    <section class="session">
+      <h3 id="session-label">Type of session</h3>
+      <div class="session-pick" role="radiogroup" aria-labelledby="session-label">
+        {#each SESSION_TYPES as s (s.value)}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={session === s.value}
+            class="session-opt {s.value}"
+            class:on={session === s.value}
+            onclick={() => (session = session === s.value ? undefined : s.value)}
+          >
+            <strong>{s.label}</strong>
+            <span class="small">{s.help}</span>
+          </button>
+        {/each}
+      </div>
+    </section>
+
     <section class="study">
       <h3>What you'll study</h3>
       {#if item && !isEvent && !hasPick(study)}
@@ -215,7 +239,7 @@
         {#if item.status === 'done'}
           <button type="button" class="btn small" disabled={saving} onclick={() => run(() => reopenItem(t.day, item, data.tasks))}>Not done</button>
         {:else}
-          <button type="button" class="btn small" disabled={saving} onclick={() => run(() => markDone(item))}>Done</button>
+          <button type="button" class="btn small" disabled={saving} onclick={() => run(() => markDone(item)).then(() => ondone?.())}>Done</button>
         {/if}
         <button type="button" class="btn small danger" disabled={saving} onclick={() => run(() => removeItem(t.day, item))}>Take off calendar</button>
       {:else if t.mode === 'block' && t.block}
@@ -226,6 +250,41 @@
 </dialog>
 
 <style>
+  .session {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .session-pick {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .session-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .session-opt span {
+    color: var(--muted);
+  }
+  .session-opt.on.apply {
+    border-color: var(--info);
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+  }
+  .session-opt.on.practice {
+    border-color: var(--good);
+    background: color-mix(in srgb, var(--good) 14%, transparent);
+  }
   .ev-dialog {
     width: min(760px, calc(100vw - 32px));
     max-height: calc(100vh - 32px);
