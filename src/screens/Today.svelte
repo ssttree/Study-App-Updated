@@ -9,6 +9,7 @@
   import { loadPractice, shortSubject } from '../lib/practice/load';
   import { recommendSubjects } from '../lib/practice/mix';
   import { loadPlanner, type PlannerData } from '../lib/planner/load';
+  import { rememberSession } from '../lib/planner/active';
   import { EXTRA_WINDOW } from '../lib/planner/build';
   import { itemColour, itemLink, itemText } from '../lib/planner/labels';
   import { addDays, clockMinutes, clockText, minutesText } from '../lib/planner/dates';
@@ -159,7 +160,7 @@
         </div>
         {#each plan.warnings as w (w)}<div class="notice warn small">{w}</div>{/each}
         {#each plan.items as p (p.item.id)}
-          <a class="row subject" class:done={p.done} href={p.done ? href('planner') : p.link}>
+          <a class="row subject" class:done={p.done} href={p.done ? href('planner') : p.link} onclick={() => !p.done && planner && rememberSession(planner.today, p.item.id)}>
             <span class="dot" style:background={p.done ? 'var(--dot)' : itemColour(p.item)}></span>
             <span class="name">{p.text.title}{p.item.optional ? ' (optional)' : ''}</span>
             <span class="mono muted small">{p.where} · {minutesText(p.item.minutes)}</span>

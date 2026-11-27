@@ -3,7 +3,7 @@
 
 import { addPractice, listProblems, listSkills, newId, problemKeys } from '../db';
 import { normaliseQuestion } from './duplicates';
-import type { Problem, ProblemLevel, ProblemSource, Skill, StoredImage } from '../types';
+import type { Course, Problem, ProblemLevel, ProblemSource, Skill, StoredImage } from '../types';
 import { newSkill } from './mix';
 import { STARTER_SKILLS } from './subjects';
 
@@ -29,6 +29,8 @@ export interface DraftProblem {
   key: string;
   /** Page of the PDF the question starts on (1 is the first), when known. */
   page?: number;
+  /** The maths course it belongs to, when the import can tell. */
+  course?: Course;
 }
 
 /** Either an existing skill's id or the details for a new one. */
@@ -160,6 +162,7 @@ export async function saveProblems(
       solutionText: d.solutionText?.trim() || undefined,
       order: order++,
       created: now,
+      ...(d.course ? { course: d.course } : {}),
       ...(file ? { origin: d.page ? { file, page: d.page } : { file } } : {}),
     });
   }

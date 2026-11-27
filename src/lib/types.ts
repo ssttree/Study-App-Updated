@@ -98,6 +98,11 @@ export interface Settings {
   problemMinutes: number;
   /** Textbook question levels to practise. Missing means all of them. */
   levels?: ProblemLevel[];
+  /**
+   * In the Extension subjects: practise only the Extension questions, or only
+   * the Advanced ones the textbook mixes in. Missing means both.
+   */
+  courseChoice?: CourseChoice;
   /** Pairs of questions you said are not the same ("idA|idB"), so Find duplicates stops showing them. */
   notDuplicates?: string[];
   lastBackupAt?: number;
@@ -143,6 +148,11 @@ export interface Skill {
   updated: number;
 }
 
+/** The maths course a question belongs to. */
+export type Course = 'adv' | 'ext1' | 'ext2';
+/** extension: only an Extension subject's own questions. advanced: only the ones from the course below. */
+export type CourseChoice = 'extension' | 'advanced';
+
 export type ProblemSource = 'smartered' | 'atarnotes' | 'snip' | 'typed' | 'textbook';
 
 /** How hard the textbook says a question is: Maths In Focus colours its question numbers this way. */
@@ -175,6 +185,8 @@ export interface Problem {
   created: number;
   /** The PDF it was cut from and the page it starts on (1 is the first), for fixing the crop by hand. */
   origin?: { file: string; page?: number };
+  /** Advanced, Extension 1 or Extension 2, from the textbook's EXT1 marks or the SmarterEd header. */
+  course?: Course;
   /** Marked as not captured properly (bad crop, missing part), to find and fix later. */
   flag?: { note: string; at: number };
 }
@@ -391,6 +403,10 @@ export interface BlockTemplate {
   minutes: number;
   study?: StudyPick;
   session?: SessionType;
+  /** The subject it's for, one of SUBJECTS. */
+  subject?: string;
+  /** A description, copied onto each event made from it. */
+  notes?: string;
 }
 
 /** event: something you added by hand or dragged in from one of your blocks. */
@@ -423,6 +439,8 @@ export interface PlanItem {
   blockId?: string;
   /** Apply (learning a skill) or Practice (repetition). Missing means not chosen. */
   session?: SessionType;
+  /** A description you write for it: what to do, which pages, what to bring. */
+  notes?: string;
 }
 
 export interface DayPlan {

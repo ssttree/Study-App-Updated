@@ -6,6 +6,9 @@
   import { practiceStyle } from '../lib/practice/subjects';
   import LevelBadge from '../components/LevelBadge.svelte';
   import LevelFilter from '../components/LevelFilter.svelte';
+  import CourseFilter from '../components/CourseFilter.svelte';
+  import QuestionCount, { countPart, savedCount } from '../components/QuestionCount.svelte';
+  import { COURSE_SHORT, courseOf, isExtensionWork, mixesCourses, subjectCourse } from '../lib/practice/course';
   import { levelChosen } from '../lib/practice/mix';
   import { deleteProblem, deleteSkill, moveProblems, saveProblem, saveSkill } from '../lib/db';
   import { loadPractice, relativeDay, type PracticeCollection } from '../lib/practice/load';
@@ -27,6 +30,7 @@
   /** The question open in the editor. */
   let editing = $state.raw<Problem | null>(null);
   let flagging = $state.raw<Problem | null>(null);
+  let count = $state(savedCount());
 
   async function load() {
     data = await loadPractice();
@@ -41,7 +45,14 @@
   const children = $derived(data?.skills.filter((s) => s.parentId === id) ?? []);
   const allProblems = $derived(data?.problems.filter((p) => p.skillId === id) ?? []);
   /** Only the textbook levels you practise are listed (and come up when you practise this skill). */
-  const problems = $derived(allProblems.filter((p) => levelChosen(p, data?.settings.levels)));
+  const mixes = $derived(mixesCourses(skill?.subject ?? ''));
+  const courseChoice = $derived(mixes ? data?.settings.courseChoice : undefined);
+  const extCount = $derived(allProblems.filter((p) => isExtensionWork(p, skill?.subject ?? '')).length);
+  const problems = $derived(
+    allProblems.filter(
+      (p) => levelChosen(p, data?.settings.levels) && (!courseChoice || isExtensionWork(p, skill?.subject ?? '') === (courseChoice === 'extension')),
+    ),
+  );
   const hidden = $derived(allProblems.length - problems.length);
   // Same subject first, so the skill you want is near the top of the list.
   const targets = $derived(
@@ -151,11 +162,15 @@
       <p class="muted">{skill.topic}{skill.topic ? ' · ' : ''}{plural(allProblems.length, 'question')} · {plural(attempts.length, 'attempt')}. {status(skill)}</p>
       {#if allProblems.some((p) => p.level)}
         <LevelFilter problems={allProblems} levels={data.settings.levels} onchange={load} />
-        {#if hidden}<p class="muted small">{plural(hidden, 'question')} hidden by the level filter. They stay saved and come back when you switch the level on.</p>{/if}
       {/if}
+      {#if mixes && extCount < allProblems.length}
+        <CourseFilter choice={courseChoice} extension={extCount} advanced={allProblems.length - extCount} lower={subjectCourse(skill?.subject ?? '') === 'ext2' ? 'Ext 1 and Advanced' : 'Advanced'} onchange={load} />
+      {/if}
+      {#if hidden}<p class="muted small">{plural(hidden, 'question')} hidden by the filters. They stay saved and come back when you switch them back on.</p>{/if}
       <div class="actions">
         {#if problems.length}
-          <a class="btn primary" href={href('practice', 'run', 'skill', skill.id)}>Practise this skill now</a>
+          <a class="btn primary" href={href('practice', 'run', 'skill', skill.id, ...countPart(count))}>Practise this skill now</a>
+          <QuestionCount bind:value={count} minutes={data.settings.problemMinutes} />
         {/if}
         <button class="btn" onclick={toggleOn}>{skill.on ? 'Mark as not taught yet' : 'Mark as taught'}</button>
       </div>
@@ -228,6 +243,7 @@
                 <span class="sr-only">Tick {p.label}</span>
               </label>
               <span class="mono small nowrap">{p.label || 'Question'}</span>
+              {#if mixes && courseOf(p, skill?.subject ?? '')}<span class="course-tag small {courseOf(p, skill?.subject ?? '')}">{COURSE_SHORT[courseOf(p, skill?.subject ?? '')!]}</span>{/if}
               {#if p.flag}<span class="flag-tag small" title={p.flag.note || 'Flagged to fix'}>⚑ flagged</span>{/if}
               <span class="mono muted small grow">
                 {#if p.level}<LevelBadge level={p.level} />{/if}
@@ -300,6 +316,18 @@
 {/if}
 
 <style>
+  .course-tag {
+    padding: 0 6px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .course-tag.ext1,
+  .course-tag.ext2 {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
   .flag-tag {
     color: var(--warn);
     white-space: nowrap;

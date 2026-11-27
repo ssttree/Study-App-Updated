@@ -68,6 +68,8 @@ export interface BookQuestion {
   /** Margin tag naming the section it tests, like "1.07" (Test yourself and practice sets). */
   tag?: string;
   mc: boolean;
+  /** "EXT1" printed beside the question number: an Extension 1 question in a chapter that mixes in Advanced work. */
+  ext1?: boolean;
 }
 
 export interface BookAnswer {
@@ -90,6 +92,8 @@ export interface BookLayout {
   answersFrom: number;
   /** Set for a practice set PDF ("PRACTICE SET 1"): its number. */
   practice?: number;
+  /** Sections the book marks "EXT1" (Extension 1 only), like "4.08", from the chapter outline and headings. */
+  extSections: string[];
 }
 
 interface Token {
@@ -101,6 +105,7 @@ interface Token {
 
 const NUMBER = /^\d{1,2}$/;
 const TAG = /^(\d{1,2}\.\d{2}),?$/;
+const SECTION_KEY = /^\d{1,2}\.\d{2}$/;
 const EXERCISE = /\bEXERCISE\s+(\d{1,2})\.(\d{2})\b/;
 const FOOTER = 37;
 const HEADER = 40;
@@ -271,11 +276,25 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
   let book = '';
   let exerciseAt: { page: number; y: number } | null = null;
   let titleItems: TextItem[] = [];
+  const extSections = new Set<string>();
+  const ext1Tokens = new Set<Token>();
 
   for (let p = 0; p < answersFrom; p++) {
     const page = pages[p];
     for (const line of lines(page.items)) {
       const text = lineText(line);
+      // The chapter outline and the syllabus list mark Extension 1 sections: "EXT1 12-04 4.08 Derivatives involving...".
+      // Only when the section number follows close by, so a marked question with a margin tag
+      // far to the right ("16 EXT1 Find ... 4.09") doesn't count its whole section. The last
+      // number wins: a syllabus code misprinted "12.06" can sit between.
+      for (const mark of line) {
+        if (mark.str.trim() !== 'EXT1') continue;
+        // Looked for on the whole page: the outline's columns can sit a point off the mark's line.
+        const keys = page.items
+          .filter((i) => SECTION_KEY.test(i.str.trim()) && Math.abs(i.y - mark.y) < 3 && i.x > mark.x && i.x - mark.x < 80)
+          .sort((a, b) => a.x - b.x);
+        if (keys.length) extSections.add(keys[keys.length - 1].str.trim());
+      }
       if (!book) {
         const b = /(Maths in Focus:.*?Mathematics(?: Extension \d| Advanced)?)/.exec(text);
         if (b) book = b[1];
@@ -336,7 +355,10 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
         // A question number starts its line, apart from a margin tag beside it.
         const before = line.filter((o) => o.x < it.x - 1 && !(o.sans && (TAG.test(o.str.trim()) || o.h < 9)));
         if (before.length) continue;
-        tokens.push({ page: p, item: it, number: n, section: section.key });
+        const token: Token = { page: p, item: it, number: n, section: section.key };
+        tokens.push(token);
+        // "16 EXT1 Find the derivative of ...": the mark sits just right of the number.
+        if (line.some((o) => o.str.trim() === 'EXT1' && o.x > it.x && o.x - (it.x + it.w) < 30)) ext1Tokens.add(token);
         last = n;
       }
     }
@@ -355,6 +377,7 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
       badge: { page: t.page, x: t.item.x + t.item.w / 2, y: top(pages[t.page], t.item) - t.item.h * 0.35 },
       tag: sec.kind === 'test' || sec.kind === 'practice' ? marginTag(pages[t.page], t.item) : undefined,
       mc: !!sec.mc && t.number >= sec.mc[0] && t.number <= sec.mc[1],
+      ...(ext1Tokens.has(t) ? { ext1: true } : {}),
     });
   }
   const named = chapterFromName(fileName);
@@ -366,6 +389,7 @@ export function findQuestions(pages: PageText[], frames: (page: number) => Frame
     questions,
     answersFrom,
     practice,
+    extSections: [...extSections].sort(),
   };
 }
 

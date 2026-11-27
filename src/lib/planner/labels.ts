@@ -60,14 +60,15 @@ export function itemText(item: PlanItem, tasks: Map<string, Task>, assessments: 
   const picked = pickText(item.study, names);
   if (!picked) return base;
   // An event says what it's for; the others keep their own words and add the choice.
-  return { title: base.title, detail: picked };
+  const subject = item.kind === 'event' ? (item.subjects ?? []).map(shortSubject).join(' + ') : '';
+  return { title: base.title, detail: subject ? `${subject} · ${picked}` : picked };
 }
 
 function baseText(item: PlanItem, tasks: Map<string, Task>, assessments: Map<string, TestPlan>, today: string): ItemText {
   const subjects = (item.subjects ?? []).map(shortSubject).join(' + ');
   switch (item.kind) {
     case 'event':
-      return { title: item.title?.trim() || 'Event', detail: hasPick(item.study) ? 'Study block' : '' };
+      return { title: item.title?.trim() || 'Event', detail: [subjects, hasPick(item.study) ? 'Study block' : ''].filter(Boolean).join(' · ') };
     case 'flashcards':
       return { title: 'Flashcards', detail: 'Everything due, new cards mixed in' };
     case 'homework': {

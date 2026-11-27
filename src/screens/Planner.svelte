@@ -21,7 +21,7 @@
   } from '../lib/planner/actions';
   import { ASK_AFTER_CARRIES, CALENDAR_WINDOW, EXTRA_WINDOW, calendarMode, extraItem, type BuiltDay } from '../lib/planner/build';
   import { entryItem, trayFor, type TrayEntry } from '../lib/planner/tray';
-  import { addDays, clockMinutes, clockText, dayLabel, dueLabel, keyToTime, minutesText, weekday } from '../lib/planner/dates';
+  import { addDays, clockMinutes, clockText, dateKey, dayLabel, dueLabel, keyToTime, minutesText, weekday } from '../lib/planner/dates';
   import { windowsFor } from '../lib/planner/availability';
   import { dayEvents, type DayEvent } from '../lib/planner/calendar';
   import { hasPick, itemColour, itemLink, itemText, KIND_TEXT, pickText, windowTime, type StudyNames } from '../lib/planner/labels';
@@ -39,6 +39,7 @@
   import { blockItem, blocksOf } from '../lib/planner/blocks';
   import { waitingForTick, weekSessions } from '../lib/planner/sessions';
   import { celebrate } from '../lib/celebrate';
+  import { rememberSession } from '../lib/planner/active';
 
   /** A date key: show that day in full instead of today. */
   let { day: dayProp }: { day?: string } = $props();
@@ -244,7 +245,9 @@
   }
 
   function startLink(day: BuiltDay, item: PlanItem) {
-    // Opening an item marks it started, so a rebuild leaves it alone.
+    // Opening an item marks it started, so a rebuild leaves it alone,
+    // and finishing what it opens ticks it off.
+    rememberSession(day.date, item.id);
     startItem(day, item);
   }
 
@@ -556,6 +559,21 @@
   }
 
   /** How full a day is outside study: classes and work, for planning energy. */
+  const EXAM_WORD = { test: 'Test', exam: 'Exam', assignment: 'Assignment due' } as const;
+  /** Assessments on a day, to stand out on the calendar. */
+  function examsOn(date: string) {
+    return (data?.assessments ?? [])
+      .filter((a) => dateKey(a.date) === date)
+      .map((a) => {
+        const at = a.time ? clockMinutes(a.time) : null;
+        return {
+          a,
+          word: EXAM_WORD[a.kind ?? 'test'],
+          span: at === null ? null : { start: at, end: at + (a.kind === 'exam' ? 120 : 60) },
+        };
+      });
+  }
+
   function loadText(c: CalDay): string {
     const lessons = c.events.filter((e) => e.kind === 'lesson').length;
     const work = c.events.filter((e) => e.kind === 'work').reduce((m, e) => m + e.end - e.start, 0);
@@ -759,6 +777,12 @@
 
         {#if view === 'day'}
           {@const cal = calendarOf([shown], false)}
+          {#each examsOn(shown.date) as x (x.a.id)}
+            <a class="exam-banner" href={href('planner', 'exam', x.a.id)}>
+              <span class="exam-star" aria-hidden="true">★</span>
+              <span><strong>{x.word}: {x.a.name}</strong>{x.a.time ? ` at ${clockText(clockMinutes(x.a.time))}` : ''}</span>
+            </a>
+          {/each}
           {#if loadText(cal.days[0]) || cal.days[0].allDay.length}
             <div class="day-load small">
               {#if loadText(cal.days[0])}<span class="muted">{loadText(cal.days[0])}</span>{/if}
@@ -935,6 +959,9 @@
             <strong>{dayLabel(c.day.date, data!.today)}</strong>
             <span class="mono dim small">{minutesText(planned(c.day))} study</span>
             {#if loadText(c)}<span class="dim small">{loadText(c)}</span>{/if}
+            {#each examsOn(c.day.date) as x (x.a.id)}
+              <span class="exam-flag small" title="{x.word}: {x.a.name}{x.a.time ? ` at ${clockText(clockMinutes(x.a.time))}` : ''}">★ {x.a.name}</span>
+            {/each}
             {#each c.allDay as t (t)}<span class="allday small" title={t}>{t}</span>{/each}
             {#if c.day.warnings.length}<span class="mini-warn" title={c.day.warnings.join(' ')}>Homework won't fit</span>{/if}
           </a>
@@ -956,6 +983,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <div
           class="col"
+          class:exam-day={examsOn(day.date).length > 0}
           class:today={day.date === data!.today}
           class:past={day.date < data!.today}
           role="group"
@@ -969,6 +997,14 @@
           title={day.date >= data!.today ? 'Click an empty time to add an event' : undefined}
         >
           {#each cal.hours as h (h)}<div class="hline" style:top="{cal.y(h)}px"></div>{/each}
+          {#each examsOn(day.date) as x (x.a.id)}
+            {#if x.span}
+              <a class="exam-blk" style={place(cal, x.span, 24)} href={href('planner', 'exam', x.a.id)} title="{x.word}: {x.a.name} · {spanText(x.span)}">
+                <span class="ev-title">★ {compact ? x.a.name : `${x.word}: ${x.a.name}`}</span>
+                {#if !compact}<span class="mono ev-time">{clockText(x.span.start)}</span>{/if}
+              </a>
+            {/if}
+          {/each}
           {#each c.events as e, i (i)}
             <div
               class="ev ev-{e.kind}"
@@ -1062,7 +1098,7 @@
       aria-label="Done: {text.title}"
       onchange={(e) => (item.status === 'done' ? act(() => reopenItem(day, item, data!.tasks)) : tickOff(day, item, e.currentTarget))}
     />
-    <button type="button" class="blk-main" onclick={() => openItem(day, item)} title="Open: choose what to study, change the time">
+    <button type="button" class="blk-main" onclick={() => openItem(day, item)} title={item.notes ? item.notes : 'Open: choose what to study, change the time'}>
       <span class="blk-title">
         {text.title}
         {#if item.kind === 'homework' && item.taskId && (tasks.get(item.taskId)?.carryOvers ?? 0) > 0}<span class="tag">carried over</span>{/if}
@@ -1070,6 +1106,7 @@
         {#if item.session}<span class="tag session {item.session}">{item.session === 'apply' ? 'Apply' : 'Practice'}</span>{/if}
       </span>
       <span class="mono small blk-time">{spanText(t)} · {item.minutes} min{tall && text.detail ? ` · ${text.detail}` : ''}</span>
+      {#if item.notes && height >= 64}<span class="small blk-notes">{item.notes}</span>{/if}
     </button>
     {#if !done}
       <span class="tools">
@@ -1098,7 +1135,7 @@
     draggable={item.status === 'todo' && day.date >= data!.today}
     ondragstart={(e) => dragStart(e, day, item)}
     ondragend={dragEnd}
-    title="{text.title}{item.session ? ` (${item.session === 'apply' ? 'Apply' : 'Practice'})` : ''} · {spanText(t)} · {item.minutes} min"
+    title="{text.title}{item.session ? ` (${item.session === 'apply' ? 'Apply' : 'Practice'})` : ''} · {spanText(t)} · {item.minutes} min{item.notes ? `\n${item.notes}` : ''}"
   >
     <span class="chip-text">{#if item.session}<span class="chip-session {item.session}">{item.session === 'apply' ? 'A' : 'P'}</span>{/if}{text.title}</span>
   </button>
@@ -1600,6 +1637,64 @@
   .ev-time {
     font-size: 11px;
     white-space: nowrap;
+  }
+  .blk-notes {
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: normal;
+  }
+  .exam-flag {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: var(--warn);
+    color: var(--bg);
+    font-weight: 700;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .exam-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    border: 2px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .exam-star {
+    color: var(--warn);
+    font-size: 20px;
+  }
+  .col.exam-day {
+    background: color-mix(in srgb, var(--warn) 7%, transparent);
+    box-shadow: inset 0 3px 0 var(--warn);
+  }
+  .exam-blk {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    padding: 3px 6px;
+    border-radius: 8px;
+    border: 2px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 30%, var(--surface));
+    color: var(--text);
+    font-weight: 700;
+    font-size: 12px;
+    text-decoration: none;
+    overflow: hidden;
   }
   .day-load {
     display: flex;

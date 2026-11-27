@@ -20,7 +20,8 @@
   import { clockMinutes, clockText, dayLabel } from '../lib/planner/dates';
   import type { PlannerData } from '../lib/planner/load';
   import { newId } from '../lib/db';
-  import type { SessionType, StudyPick } from '../lib/types';
+  import { rememberSession } from '../lib/planner/active';
+  import { SUBJECTS, type SessionType, type StudyPick } from '../lib/types';
 
   let {
     target,
@@ -55,6 +56,8 @@
   let minutes = $state(t.mode === 'block' ? (t.block?.minutes ?? 30) : t.mode === 'new' ? (t.minutes ?? 30) : (item?.minutes ?? 30));
   let study = $state<StudyPick>(structuredClone((t.mode === 'block' ? t.block?.study : item?.study) ?? {}));
   let session = $state<SessionType | undefined>(t.mode === 'block' ? t.block?.session : item?.session);
+  let subject = $state((t.mode === 'block' ? t.block?.subject : item?.kind === 'event' ? item.subjects?.[0] : '') ?? '');
+  let notes = $state((t.mode === 'block' ? t.block?.notes : item?.notes) ?? '');
   let asBlock = $state(false);
   let saving = $state(false);
   let error = $state('');
@@ -64,7 +67,7 @@
   );
   const done = item?.status === 'done';
   /** The subject to open the lists on: the item's own, if it has one. */
-  const subjectHint = $derived(item?.subjects?.[0] ?? (item?.taskId ? tasks.get(item.taskId)?.subject : '') ?? '');
+  const subjectHint = $derived(subject || (item?.subjects?.[0] ?? (item?.taskId ? tasks.get(item.taskId)?.subject : '') ?? ''));
 
   let dialog = $state<HTMLDialogElement | null>(null);
   $effect(() => {
@@ -76,14 +79,14 @@
     error = '';
     if (t.mode === 'block') {
       if (!title.trim()) return fail('Give the block a name.');
-      await saveBlock(data.availability, { id: t.block?.id ?? newId(), name: title, minutes, study, session });
+      await saveBlock(data.availability, { id: t.block?.id ?? newId(), name: title, minutes, study, session, subject, notes });
       return true;
     }
     if (t.mode === 'new') {
       if (!title.trim()) return fail('Give the event a name.');
       if (!date || date < data.today) return fail('Pick today or a later day.');
-      await placeItem(data.days, date, eventItem({ title, start: start || undefined, minutes, study, session }));
-      if (asBlock) await saveBlock(data.availability, { id: newId(), name: title, minutes, study, session });
+      await placeItem(data.days, date, eventItem({ title, start: start || undefined, minutes, study, session, subject, notes }));
+      if (asBlock) await saveBlock(data.availability, { id: newId(), name: title, minutes, study, session, subject, notes });
       return true;
     }
     if (item && t.mode === 'item') {
@@ -93,6 +96,8 @@
         start: start || undefined,
         study,
         session,
+        subject: isEvent ? subject : undefined,
+        notes,
         started,
       });
     }
@@ -101,7 +106,7 @@
   /** Ticks it off with what's in the window kept (one save, so nothing is lost). */
   async function markDone(it: PlanItem) {
     if (t.mode !== 'item') return;
-    const changed = changedItem(it, { title: it.kind === 'event' ? title : undefined, minutes, start: start || undefined, study, session });
+    const changed = changedItem(it, { title: it.kind === 'event' ? title : undefined, minutes, start: start || undefined, study, session, subject: isEvent ? subject : undefined, notes });
     const day = { ...t.day, plan: { ...t.day.plan, items: t.day.plan.items.map((x) => (x.id === it.id ? changed : x)) } };
     await completeItem(day, changed, data.tasks);
   }
@@ -133,6 +138,7 @@
     saving = true;
     try {
       await save(true);
+      rememberSession(t.day.date, item.id);
       location.hash = link;
     } finally {
       saving = false;
@@ -181,6 +187,15 @@
       {#if t.mode !== 'block'}
         <label class="field">Starts<input type="time" step="900" bind:value={start} /></label>
       {/if}
+      {#if isEvent}
+        <label class="field">
+          Subject
+          <select bind:value={subject}>
+            <option value="">No subject</option>
+            {#each SUBJECTS as s (s)}<option value={s}>{s}</option>{/each}
+          </select>
+        </label>
+      {/if}
       <label class="field">
         Length
         <select bind:value={minutes}>
@@ -188,6 +203,11 @@
         </select>
       </label>
     </div>
+
+    <label class="field notes">
+      Description
+      <textarea rows="2" bind:value={notes} placeholder="e.g. Ex 4.08 Q1 to 12, then check answers. Bring the formula sheet."></textarea>
+    </label>
 
     <section class="session">
       <h3 id="session-label">Type of session</h3>
