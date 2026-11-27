@@ -5,8 +5,9 @@
   import { DEFAULT_RAMP, KIND_LABEL, rampOf, stageOf, STAGE_LABEL, STAGE_TEXT } from '../lib/planner/assessments';
   import { dateKey, dueLabel, keyToTime, todayKey } from '../lib/planner/dates';
   import { plural } from '../lib/load';
+  import { COURSE_SHORT, extensionSplit, mixesCourses, subjectCourse } from '../lib/practice/course';
   import { go, href } from '../lib/router.svelte';
-  import { SUBJECTS, type AssessmentKind, type Deck, type RampDays, type Task, type TaskNotification, type TestPlan } from '../lib/types';
+  import { SUBJECTS, type AssessmentKind, type Deck, type CourseChoice, type RampDays, type Task, type TaskNotification, type TestPlan } from '../lib/types';
   import NotificationView from '../components/NotificationView.svelte';
 
   /** from: opened from the planner rather than practice, which changes the way back. */
@@ -30,6 +31,7 @@
   let mark = $state<number | ''>('');
   let outOf = $state<number | ''>('');
   let badSkillIds = $state<string[]>([]);
+  let course = $state<CourseChoice | 'both'>('extension');
   let created = Date.now();
   let error = $state('');
 
@@ -58,6 +60,7 @@
       mark = plan.mark ?? '';
       outOf = plan.outOf ?? '';
       badSkillIds = [...(plan.badSkillIds ?? [])];
+      course = plan.course ?? 'extension';
       created = plan.created;
     } else {
       subject = [...new Set(d.skills.map((s) => s.subject))][0] ?? SUBJECTS[1];
@@ -71,6 +74,34 @@
   const subjectDecks = $derived(decks.filter((d) => d.subject === subject));
   const topics = $derived([...new Set(subjectSkills.map((s) => s.topic || 'Other'))]);
   const stage = $derived(plan ? stageOf(plan, today) : 'none');
+  // Extension subjects: how many of each skill's questions are the Extension work.
+  const mixes = $derived(mixesCourses(subject));
+  const extName = $derived(COURSE_SHORT[subjectCourse(subject) ?? 'ext1']);
+  const lowerName = $derived(subjectCourse(subject) === 'ext2' ? 'Ext 1/Adv' : 'Adv');
+  const splits = $derived.by(() => {
+    const m = new Map<string, { ext: number; lower: number }>();
+    if (!data || !mixes) return m;
+    for (const s of subjectSkills) m.set(s.id, extensionSplit(withChildren([s.id], data.skills), data.problems, subject));
+    return m;
+  });
+  const withExt = $derived(subjectSkills.filter((s) => (splits.get(s.id)?.ext ?? 0) > 0));
+  /** Questions test prep will use from the ticked skills. */
+  const inScope = $derived.by(() => {
+    let ext = 0;
+    let lower = 0;
+    for (const id of skillIds) {
+      ext += splits.get(id)?.ext ?? 0;
+      lower += splits.get(id)?.lower ?? 0;
+    }
+    return course === 'both' ? ext + lower : course === 'extension' ? ext : lower;
+  });
+
+  function tickExtension() {
+    const ids = withExt.map((s) => s.id);
+    const all = ids.every((i) => skillIds.includes(i));
+    skillIds = all ? skillIds.filter((i) => !ids.includes(i)) : [...new Set([...skillIds, ...ids])];
+  }
+
   const isPast = $derived(!!date && !!today && date < today);
   // How often each chosen skill has come up since the plan was made (aim: at least twice).
   const counts = $derived.by(() => {
@@ -123,6 +154,7 @@
       badSkillIds: badSkillIds.length ? [...badSkillIds] : undefined,
       time: time || undefined,
       notification,
+      course: mixesCourses(subject) && course !== 'extension' ? course : undefined,
     };
     // Skills that went badly come back straight away.
     const newlyBad = badSkillIds.filter((s) => !(plan?.badSkillIds ?? []).includes(s));
@@ -247,6 +279,25 @@
 
       <section>
         <h2>Skills in it</h2>
+        {#if mixes && subjectSkills.length}
+          <div class="courses">
+            <span class="muted small">Questions to practise for it</span>
+            {#each [['extension', `${extName} only`], ['both', 'Both'], ['advanced', `${lowerName} only`]] as const as [value, label] (value)}
+              <button type="button" class="chip" class:on={course === value} aria-pressed={course === value} onclick={() => (course = value)}>{label}</button>
+            {/each}
+          </div>
+          <p class="muted small">
+            Each skill shows how many of its questions are {extName} and how many are {lowerName}.
+            {#if skillIds.length}Test prep will use {plural(inScope, 'question')} from the skills ticked.{/if}
+          </p>
+          {#if withExt.length}
+            <div class="actions">
+              <button class="btn small" onclick={tickExtension}>
+                {withExt.every((s) => skillIds.includes(s.id)) ? 'Untick' : 'Tick'} all {plural(withExt.length, 'skill')} with {extName} questions
+              </button>
+            </div>
+          {/if}
+        {/if}
         {#if !subjectSkills.length}
           <p class="muted small">No skills in {subject} yet. <a href={href('practice', 'import')}>Import some questions</a> first.</p>
         {/if}
@@ -259,6 +310,13 @@
             <label class="row pick">
               <input type="checkbox" value={s.id} bind:group={skillIds} />
               <span class="grow">{s.name}</span>
+              {#if mixes && splits.get(s.id)}
+                {@const sp = splits.get(s.id)!}
+                <span class="split mono small">
+                  <span class:ext={sp.ext > 0} class:none={!sp.ext}>{sp.ext} {extName}</span>
+                  <span class="muted">· {sp.lower} {lowerName}</span>
+                </span>
+              {/if}
               {#if plan && plan.skillIds.includes(s.id)}
                 <span class="mono small" class:muted={(counts.get(s.id) ?? 0) >= 2} class:accent={(counts.get(s.id) ?? 0) < 2}>
                   done {plural(counts.get(s.id) ?? 0, 'time')}
@@ -414,6 +472,41 @@
     border-radius: 10px;
     border: 1px solid var(--accent);
     color: var(--accent);
+  }
+  .courses {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0 8px;
+  }
+  .courses > span {
+    margin-right: 4px;
+  }
+  .chip {
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .chip.on {
+    color: var(--text);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .split {
+    white-space: nowrap;
+  }
+  .split .ext {
+    color: var(--accent);
+  }
+  .split .none {
+    color: var(--muted);
   }
   .result {
     padding: 18px;

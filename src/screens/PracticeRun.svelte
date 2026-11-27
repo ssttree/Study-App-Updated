@@ -2,7 +2,7 @@
   import ProblemView from '../components/ProblemView.svelte';
   import ProblemEditor from '../components/ProblemEditor.svelte';
   import FlagDialog from '../components/FlagDialog.svelte';
-  import { withCourse } from '../lib/practice/course';
+  import { planCourseChoice, withCourse } from '../lib/practice/course';
   import SessionTicked from '../components/SessionTicked.svelte';
   import { copiesOf } from '../lib/practice/edit';
   import { getTask, recordAttempt } from '../lib/db';
@@ -68,7 +68,10 @@
     // Only the textbook levels you chose (Foundation, Mastery, Complex) come up.
     const all = await loadPractice();
     everything = all;
-    const d = withCourse(withLevels(all, all.settings.levels), all.settings.courseChoice);
+    // Test prep for an Extension test uses the Extension questions unless the plan says otherwise.
+    const planFor = parts[0] === 'plan' ? all.plans.find((p) => p.id === parts[1]) : undefined;
+    const choice = planFor ? planCourseChoice(planFor, all.settings.courseChoice) : all.settings.courseChoice;
+    const d = withCourse(withLevels(all, all.settings.levels), choice);
     data = d;
     scheduler = makeSkillScheduler(d.settings);
     // The planner can ask for a set length, as a last part like "45m".

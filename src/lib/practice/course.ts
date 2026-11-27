@@ -6,7 +6,7 @@
 // practised without the Advanced questions, or the other way round.
 
 import { parseHeader } from './smartered';
-import type { Course, CourseChoice, Problem, Skill } from '../types';
+import type { Course, CourseChoice, Problem, Skill, TestPlan } from '../types';
 
 export const COURSE_NAMES: Record<Course, string> = { adv: 'Advanced', ext1: 'Extension 1', ext2: 'Extension 2' };
 export const COURSE_SHORT: Record<Course, string> = { adv: 'Adv', ext1: 'Ext 1', ext2: 'Ext 2' };
@@ -140,4 +140,30 @@ export function withCourse<T extends { problems: Problem[]; skills: Skill[] }>(d
       return isExtensionWork(p, subject) === (choice === 'extension');
     }),
   };
+}
+
+/**
+ * The questions a test plan practises. In an Extension subject it's Extension
+ * only unless the plan says otherwise; elsewhere it follows the usual setting.
+ */
+export function planCourseChoice(plan: Pick<TestPlan, 'subject' | 'course'>, fallback: CourseChoice | undefined): CourseChoice | undefined {
+  if (!mixesCourses(plan.subject)) return fallback;
+  const c = plan.course ?? 'extension';
+  return c === 'both' ? undefined : c;
+}
+
+/** How many of a skill's questions (sub-skills included) are the Extension work, and how many are from the course below. */
+export function extensionSplit(
+  skillIds: Set<string>,
+  problems: Pick<Problem, 'course' | 'key' | 'label' | 'skillId'>[],
+  subject: string,
+): { ext: number; lower: number } {
+  let ext = 0;
+  let lower = 0;
+  for (const p of problems) {
+    if (!skillIds.has(p.skillId)) continue;
+    if (isExtensionWork(p, subject)) ext++;
+    else lower++;
+  }
+  return { ext, lower };
 }

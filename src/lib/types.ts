@@ -262,6 +262,11 @@ export interface TestPlan {
   time?: string;
   /** The school's task notification, when it was uploaded. */
   notification?: TaskNotification;
+  /**
+   * Extension subjects: which course's questions test prep uses. Missing means
+   * Extension only, since an Extension test examines the Extension work.
+   */
+  course?: CourseChoice | 'both';
 }
 
 // Assessment task notifications (see planner/notification.ts).
