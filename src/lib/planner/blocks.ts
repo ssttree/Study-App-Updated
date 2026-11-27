@@ -30,7 +30,10 @@ export function cleanMinutes(m: number, fallback = 30): number {
   return Number.isFinite(n) && n > 0 ? Math.min(12 * 60, Math.max(5, n)) : fallback;
 }
 
-export type EventFields = Pick<PlanItem, 'start' | 'minutes' | 'title' | 'study' | 'blockId' | 'session'>;
+export type EventFields = Pick<PlanItem, 'start' | 'minutes' | 'title' | 'study' | 'blockId' | 'session' | 'notes'> & {
+  /** The subject it's for. */
+  subject?: string;
+};
 
 /** The plan item for an event you add by hand (or drag in from a block). */
 export function eventItem(f: EventFields): Omit<PlanItem, 'id' | 'windowId' | 'pinned' | 'status'> {
@@ -45,12 +48,14 @@ export function eventItem(f: EventFields): Omit<PlanItem, 'id' | 'windowId' | 'p
   if (f.blockId) out.blockId = f.blockId;
   const session = cleanSession(f.session);
   if (session) out.session = session;
+  if (f.subject?.trim()) out.subjects = [f.subject.trim()];
+  if (f.notes?.trim()) out.notes = f.notes.trim();
   return out;
 }
 
 /** What dragging a block onto `start` (HH:MM) makes. Later edits to the block leave it alone. */
 export function blockItem(b: BlockTemplate, start: string): Omit<PlanItem, 'id' | 'windowId' | 'pinned' | 'status'> {
-  return eventItem({ start, minutes: b.minutes, title: b.name, study: b.study, blockId: b.id, session: b.session });
+  return eventItem({ start, minutes: b.minutes, title: b.name, study: b.study, blockId: b.id, session: b.session, subject: b.subject, notes: b.notes });
 }
 
 export function blocksOf(a: Availability): BlockTemplate[] {
@@ -64,6 +69,8 @@ export function withBlock(a: Availability, b: BlockTemplate): Availability {
   if (study) clean.study = study;
   const session = cleanSession(b.session);
   if (session) clean.session = session;
+  if (b.subject?.trim()) clean.subject = b.subject.trim();
+  if (b.notes?.trim()) clean.notes = b.notes.trim();
   const list = blocksOf(a);
   const blocks = list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? clean : x)) : [...list, clean];
   return { ...a, blocks };
@@ -81,6 +88,10 @@ export interface ItemChanges {
   study?: StudyPick | undefined;
   /** Apply or Practice. Given as undefined clears it. */
   session?: SessionType | undefined;
+  /** Events only: the subject it's for. Given as undefined or empty clears it. */
+  subject?: string | undefined;
+  /** The description. Empty clears it. */
+  notes?: string;
   /** Opened from the window, so a rebuild leaves it alone. */
   started?: boolean;
 }
@@ -95,6 +106,14 @@ export function changedItem(item: PlanItem, c: ItemChanges): PlanItem {
     const study = cleanPick(c.study);
     if (study) out.study = study;
     else delete out.study;
+  }
+  if ('subject' in c && item.kind === 'event') {
+    if (c.subject?.trim()) out.subjects = [c.subject.trim()];
+    else delete out.subjects;
+  }
+  if (c.notes !== undefined) {
+    if (c.notes.trim()) out.notes = c.notes.trim();
+    else delete out.notes;
   }
   if ('session' in c) {
     const session = cleanSession(c.session);

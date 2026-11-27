@@ -1,6 +1,7 @@
 <script lang="ts">
   import MathText from '../components/MathText.svelte';
   import CardEditor from './CardEditor.svelte';
+  import SessionTicked from '../components/SessionTicked.svelte';
   import { recordReview } from '../lib/db';
   import { effectiveTyping } from '../lib/cards';
   import { answerKey, checkAnswer, prettyChem } from '../lib/answers';
@@ -380,6 +381,7 @@
           <h1>No cards due in {filterLabel}</h1>
           <p class="muted">Add some cards, or come back when reviews are due.</p>
         {/if}
+        {#if waitUntil === null && done > 0}<SessionTicked kind="flashcards" />{/if}
         <div class="actions">
           <a class="btn primary" href={href('today')}>Back to today</a>
           <a class="btn" href={href('custom')}>Custom study</a>

@@ -6,6 +6,7 @@ import { OpenPdf, SCALE } from './pdf';
 import { findEntries, looksLikeSmarterEd, pairEntries, type Entry, type PageText, type Region, type Worksheet } from './smartered';
 import type { DraftProblem, Picture } from './save';
 import { guessOtherSubject } from './subjects';
+import { courseFromCode, textbookCourse } from './course';
 import {
   answerLetter,
   answersStart,
@@ -94,6 +95,7 @@ function makePair(question: Entry, solution: Entry | undefined, q: Picture | nul
     problems,
     include: !!q,
     page: question.regions[0] ? question.regions[0].page + 1 : undefined,
+    course: courseFromCode(question.header.course),
   };
 }
 
@@ -171,7 +173,8 @@ async function analyseTextbook(pdf: OpenPdf, pages: PageText[], fileName: string
     else if (section.kind === 'exercise') target = sheets.get(section.key)!;
     else if (section.kind === 'practice') target = sheetFor(section.key, practiceTitle(section.title, layout, fileName));
     else target = sheetFor(section.key, `Ch ${layout.chapter} ${section.kind === 'test' ? 'Test yourself' : 'Challenge exercise'}`);
-    target.pairs.push(makeBookPair(q, section.title, section.kind, level, picture, answer, bookKey, solution));
+    const course = textbookCourse({ book: layout.book, section: q.section, number: q.number, marked: q.ext1, tag: q.tag, extSections: layout.extSections });
+    target.pairs.push({ ...makeBookPair(q, section.title, section.kind, level, picture, answer, bookKey, solution), course });
   }
   // Answers sit together at the back, so crop them in page order.
   const pending = [...sheets.values()].flatMap((s) => s.pairs as BookPair[]).filter((p) => p.answerRegions);

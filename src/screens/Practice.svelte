@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { withCourse } from '../lib/practice/course';
+  import QuestionCount, { countPart, savedCount } from '../components/QuestionCount.svelte';
   import { loadPractice, relativeDay, shortSubject, type PracticeCollection } from '../lib/practice/load';
   import { activePlans, activeSkills, buildDailyMix, costMinutes, recommendSubjects, withLevels } from '../lib/practice/mix';
   import LevelFilter from '../components/LevelFilter.svelte';
@@ -8,6 +10,7 @@
   import { href } from '../lib/router.svelte';
 
   let data = $state.raw<PracticeCollection | null>(null);
+  let count = $state(savedCount());
   let chosen = $state('');
   let second = $state('');
 
@@ -50,7 +53,7 @@
   const preview = $derived.by(() => {
     if (!data || !subject) return null;
     const subjects = second && second !== subject ? [subject, second] : [subject];
-    const items = buildDailyMix(withLevels(data, data.settings.levels), { subjects, minutes: data.settings.problemMinutes, dayEnd: data.dayEnd, rng: () => 0.5 });
+    const items = buildDailyMix(withCourse(withLevels(data, data.settings.levels), data.settings.courseChoice), { subjects, minutes: data.settings.problemMinutes, dayEnd: data.dayEnd, rng: () => 0.5 });
     return {
       count: items.length,
       skills: new Set(items.map((i) => i.skill.id)).size,
@@ -96,7 +99,8 @@
         </p>
         <div class="actions">
           {#if preview.count > 0}
-            <a class="btn primary" href={href('practice', 'run', 'mix', ...preview.subjects)}>Start the mix</a>
+            <a class="btn primary" href={href('practice', 'run', 'mix', ...preview.subjects, ...countPart(count))}>Start the mix</a>
+            <QuestionCount bind:value={count} minutes={data.settings.problemMinutes} />
           {/if}
           <label class="inline">
             <span class="sr-only">Subject</span>

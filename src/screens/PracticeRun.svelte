@@ -2,6 +2,8 @@
   import ProblemView from '../components/ProblemView.svelte';
   import ProblemEditor from '../components/ProblemEditor.svelte';
   import FlagDialog from '../components/FlagDialog.svelte';
+  import { withCourse } from '../lib/practice/course';
+  import SessionTicked from '../components/SessionTicked.svelte';
   import { copiesOf } from '../lib/practice/edit';
   import { getTask, recordAttempt } from '../lib/db';
   import { plural } from '../lib/load';
@@ -66,14 +68,17 @@
     // Only the textbook levels you chose (Foundation, Mastery, Complex) come up.
     const all = await loadPractice();
     everything = all;
-    const d = withLevels(all, all.settings.levels);
+    const d = withCourse(withLevels(all, all.settings.levels), all.settings.courseChoice);
     data = d;
     scheduler = makeSkillScheduler(d.settings);
     // The planner can ask for a set length, as a last part like "45m".
+    // Or a set number of questions, like "12q", picked before starting.
     const last = parts[parts.length - 1] ?? '';
     const asked = /^\d+m$/.test(last) ? Number(last.slice(0, -1)) : 0;
-    const minutes = asked || d.settings.problemMinutes;
-    const [kind, ...rest] = asked ? parts.slice(0, -1) : parts;
+    const count = /^\d+q$/.test(last) ? Number(last.slice(0, -1)) : 0;
+    // Room for that many questions at the longest (a 25 mark question), then cut to the number asked for.
+    const minutes = count ? count * 40 : asked || d.settings.problemMinutes;
+    const [kind, ...rest] = asked || count ? parts.slice(0, -1) : parts;
     if (kind === 'plan') {
       const plan = d.plans.find((p) => p.id === rest[0]);
       if (plan) {
@@ -99,6 +104,7 @@
       title = rest.map(shortSubject).join(' + ') + ' mix';
       items = buildDailyMix(d, { subjects: rest, minutes, dayEnd: d.dayEnd });
     }
+    if (count) items = items.slice(0, count);
     loaded = true;
     startedAt = questionAt = Date.now();
   }
@@ -260,6 +266,7 @@
         If that felt harder than doing one topic at a time, good: mixing is meant to feel that way, and it is what
         makes the {blockWord}s stick for the exam.
       </p>
+      {#if summary.n > 0}<SessionTicked kind="practice" />{/if}
       <div class="actions">
         <a class="btn primary" href={href('practice')}>Back to practice</a>
         <a class="btn" href={href('today')}>Today</a>

@@ -4,6 +4,12 @@
   import { plural } from '../lib/load';
   import { href } from '../lib/router.svelte';
   import type { Skill } from '../lib/types';
+  import CourseFilter from '../components/CourseFilter.svelte';
+  import QuestionCount, { countPart, savedCount } from '../components/QuestionCount.svelte';
+  import { isExtensionWork, mixesCourses } from '../lib/practice/course';
+  import { levelChosen } from '../lib/practice/mix';
+
+  let count = $state(savedCount());
 
   let { subject = '' }: { subject?: string } = $props();
 
@@ -13,8 +19,16 @@
 
   const groups = $derived.by(() => {
     if (!data) return [];
-    const count = new Map<string, number>();
-    for (const p of data.problems) count.set(p.skillId, (count.get(p.skillId) ?? 0) + 1);
+    // Questions per skill, split into the Extension work and the Advanced work an Extension book mixes in.
+    const subjectOf = new Map(data.skills.map((s) => [s.id, s.subject]));
+    const count = new Map<string, { ext: number; adv: number }>();
+    for (const p of data.problems) {
+      if (!levelChosen(p, data.settings.levels)) continue;
+      const c = count.get(p.skillId) ?? { ext: 0, adv: 0 };
+      if (isExtensionWork(p, subjectOf.get(p.skillId) ?? '')) c.ext++;
+      else c.adv++;
+      count.set(p.skillId, c);
+    }
     const subjects = [...new Set(data.skills.map((s) => s.subject))].sort().filter((s) => !subject || s === subject);
     return subjects.map((sub) => {
       const mine = data!.skills.filter((s) => s.subject === sub);
@@ -27,10 +41,34 @@
           skills: tops
             .filter((s) => (s.topic || 'Other') === topic)
             .flatMap((s) => [s, ...mine.filter((c) => c.parentId === s.id)])
-            .map((s) => ({ skill: s, questions: count.get(s.id) ?? 0 })),
+            .map((s) => ({ skill: s, ...(count.get(s.id) ?? { ext: 0, adv: 0 }) }))
+            .map((r) => ({ ...r, questions: shown(r.skill.subject, r.ext, r.adv) }))
+            // With one course picked, a skill with none of its questions drops out of the list.
+            .filter((r) => !choiceFor(r.skill.subject) || r.questions > 0),
         })),
       };
     });
+  });
+
+  const choiceFor = (subject: string) => (mixesCourses(subject) ? data?.settings.courseChoice : undefined);
+  /** Questions that come up, with the course choice applied. */
+  function shown(subject: string, ext: number, adv: number): number {
+    const c = choiceFor(subject);
+    return c === 'extension' ? ext : c === 'advanced' ? adv : ext + adv;
+  }
+  /** Each course's total in the subjects listed, for the filter. */
+  const totals = $derived.by(() => {
+    if (!data) return { ext: 0, adv: 0, any: false };
+    const mixing = new Set(data.skills.filter((s) => mixesCourses(s.subject) && (!subject || s.subject === subject)).map((s) => s.id));
+    let ext = 0;
+    let adv = 0;
+    for (const p of data.problems) {
+      if (!mixing.has(p.skillId) || !levelChosen(p, data.settings.levels)) continue;
+      const sub = data.skills.find((s) => s.id === p.skillId)!.subject;
+      if (isExtensionWork(p, sub)) ext++;
+      else adv++;
+    }
+    return { ext, adv, any: mixing.size > 0 && adv > 0 };
   });
 
   function status(s: Skill): string {
@@ -56,6 +94,18 @@
       you would forget the method.
     </p>
     {#if subject}<a class="small" href={href('practice', 'skills')}>Show every subject</a>{/if}
+    <div class="tools">
+      {#if data && totals.any}
+        <CourseFilter choice={data.settings.courseChoice} extension={totals.ext} advanced={totals.adv} onchange={load} />
+      {/if}
+      <QuestionCount bind:value={count} minutes={data?.settings.problemMinutes} />
+    </div>
+    {#if data && totals.any}
+      <p class="muted small">
+        The Extension textbook mixes Advanced work in. Pick Extension only to leave it out of these skills, your daily
+        mix and test prep, or Advanced only to practise just that.
+      </p>
+    {/if}
   </section>
 
   {#if data && groups.length === 0}
@@ -67,14 +117,17 @@
       <h2>{g.subject}</h2>
       {#each g.topics as t (t.topic)}
         <div class="topic eyebrow">{t.topic}</div>
-        {#each t.skills as { skill, questions } (skill.id)}
+        {#each t.skills as { skill, questions, ext, adv } (skill.id)}
           <div class="row" class:child={!!skill.parentId}>
             <label class="taught">
               <input type="checkbox" checked={skill.on} onchange={() => toggle(skill)} />
               <span class="sr-only">Taught: {skill.name}</span>
             </label>
             <a class="name" href={href('practice', 'skill', skill.id)}>{skill.name}</a>
-            <span class="mono muted small">{plural(questions, 'question')} · {status(skill)}</span>
+            <span class="mono muted small">
+              {plural(questions, 'question')}{!choiceFor(skill.subject) && mixesCourses(skill.subject) && adv > 0 ? (ext > 0 ? ` (${adv} Adv)` : ' · Advanced') : ''} · {status(skill)}
+            </span>
+            {#if questions > 0}<a class="btn small" href={href('practice', 'run', 'skill', skill.id, ...countPart(count))}>Practise</a>{/if}
           </div>
         {/each}
       {/each}
@@ -105,6 +158,12 @@
   .topic {
     margin: 18px 0 2px;
     font-size: 12px;
+  }
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 24px;
   }
   .row.child {
     padding-left: 34px;
